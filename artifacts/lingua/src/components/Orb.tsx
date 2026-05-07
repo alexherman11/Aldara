@@ -30,6 +30,31 @@ export function Orb({ state = 'idle', className, onClick }: OrbProps) {
       className={cn('relative w-full h-full rounded-full cursor-pointer select-none', className)}
       onClick={onClick}
     >
+      {/* ── Shooting stars — occasional streaks around the orb ── */}
+      <div className="absolute pointer-events-none" style={{ top: '50%', left: '50%', width: 0, height: 0, overflow: 'visible' }}>
+        {([
+          { cls: 'orb-star-1', color: 'rgba(255,248,190,0.94)' },
+          { cls: 'orb-star-2', color: 'rgba(255,215,140,0.88)' },
+          { cls: 'orb-star-3', color: 'rgba(255,240,170,0.86)' },
+          { cls: 'orb-star-4', color: 'rgba(255,255,210,0.90)' },
+        ] as const).map(({ cls, color }) => (
+          <div
+            key={cls}
+            className={`absolute ${cls}`}
+            style={{
+              top: -1,
+              left: 0,
+              width: 54,
+              height: 2,
+              background: `linear-gradient(to right, transparent 0%, ${color} 100%)`,
+              borderRadius: 2,
+              filter: 'blur(0.7px)',
+              transformOrigin: 'left center',
+            }}
+          />
+        ))}
+      </div>
+
       {/* ── Ambient glow halo ── */}
       <div
         className="absolute rounded-full pointer-events-none orb-hue-shift"

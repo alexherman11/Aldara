@@ -158,6 +158,41 @@
 
 /* ===== ORB ANIMATIONS ===== */
 
+/* ---- Shooting stars — arc past the orb occasionally ---- */
+@keyframes shootStar1 {
+  0%, 100% { transform: translate(-78px, -52px) rotate(-30deg) scaleX(0.2); opacity: 0; }
+  10%       { transform: translate(-78px, -52px) rotate(-30deg) scaleX(0.2); opacity: 0; }
+  20%       { transform: translate(-52px, -34px) rotate(-30deg) scaleX(1);   opacity: 0.88; }
+  55%       { transform: translate(28px,   14px) rotate(-30deg) scaleX(1);   opacity: 0.75; }
+  72%       { transform: translate(52px,   26px) rotate(-30deg) scaleX(0.3); opacity: 0; }
+}
+@keyframes shootStar2 {
+  0%, 100% { transform: translate(62px, -60px) rotate(210deg) scaleX(0.2); opacity: 0; }
+  8%        { transform: translate(62px, -60px) rotate(210deg) scaleX(0.2); opacity: 0; }
+  20%       { transform: translate(42px, -38px) rotate(210deg) scaleX(1);   opacity: 0.82; }
+  54%       { transform: translate(-30px, 26px) rotate(210deg) scaleX(1);   opacity: 0.70; }
+  70%       { transform: translate(-52px, 40px) rotate(210deg) scaleX(0.3); opacity: 0; }
+}
+@keyframes shootStar3 {
+  0%, 100% { transform: translate(-60px, 56px) rotate(35deg) scaleX(0.2);  opacity: 0; }
+  14%       { transform: translate(-60px, 56px) rotate(35deg) scaleX(0.2);  opacity: 0; }
+  26%       { transform: translate(-36px, 34px) rotate(35deg) scaleX(1);    opacity: 0.78; }
+  58%       { transform: translate(30px, -22px) rotate(35deg) scaleX(1);    opacity: 0.65; }
+  74%       { transform: translate(50px, -36px) rotate(35deg) scaleX(0.3);  opacity: 0; }
+}
+@keyframes shootStar4 {
+  0%, 100% { transform: translate(70px, 46px) rotate(162deg) scaleX(0.2);  opacity: 0; }
+  6%        { transform: translate(70px, 46px) rotate(162deg) scaleX(0.2);  opacity: 0; }
+  18%       { transform: translate(44px, 28px) rotate(162deg) scaleX(1);    opacity: 0.84; }
+  52%       { transform: translate(-28px, -20px) rotate(162deg) scaleX(1);  opacity: 0.70; }
+  68%       { transform: translate(-48px, -34px) rotate(162deg) scaleX(0.3); opacity: 0; }
+}
+
+.orb-star-1 { animation: shootStar1  9.0s ease-in-out infinite  0.4s; }
+.orb-star-2 { animation: shootStar2 12.5s ease-in-out infinite  4.8s; }
+.orb-star-3 { animation: shootStar3 10.5s ease-in-out infinite  8.2s; }
+.orb-star-4 { animation: shootStar4 14.0s ease-in-out infinite  1.9s; }
+
 /* ---- Sonar pulse rings — expand outward & fade ---- */
 @keyframes orbSonar {
   0%   { transform: scale(1);   opacity: 0.38; }
