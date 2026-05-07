@@ -158,7 +158,35 @@
 
 /* ===== ORB ANIMATIONS ===== */
 
-/* Idle emission rings — very slow pulsing outward */
+/* ---- Sonar pulse rings — expand outward & fade ---- */
+@keyframes orbSonar {
+  0%   { transform: scale(1);   opacity: 0.38; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.orb-sonar-1 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite; }
+.orb-sonar-2 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 1.07s; }
+.orb-sonar-3 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 2.14s; }
+
+/* Speaking sonar — faster */
+@keyframes orbSonarFast {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
+.orb-sonar-speak-1 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite; }
+.orb-sonar-speak-2 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 0.53s; }
+.orb-sonar-speak-3 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 1.06s; }
+
+/* ---- Hue-shift overlay cycling orange → red → yellow ---- */
+@keyframes orbHueShift {
+  0%   { background: radial-gradient(circle at 50% 50%, hsla(20,100%,62%,0.55) 0%, transparent 70%); }
+  28%  { background: radial-gradient(circle at 50% 50%, hsla(0,100%,54%,0.55)  0%, transparent 70%); }
+  55%  { background: radial-gradient(circle at 50% 50%, hsla(45,100%,62%,0.55) 0%, transparent 70%); }
+  78%  { background: radial-gradient(circle at 50% 50%, hsla(8,100%,58%,0.55)  0%, transparent 70%); }
+  100% { background: radial-gradient(circle at 50% 50%, hsla(20,100%,62%,0.55) 0%, transparent 70%); }
+}
+.orb-hue-shift { animation: orbHueShift 5s ease-in-out infinite; }
+
+/* ---- Idle emission rings (retained for glow) ---- */
 @keyframes orbRing1 {
   0%, 100% { transform: scale(1); opacity: 0.42; }
   50% { transform: scale(1.18); opacity: 0; }

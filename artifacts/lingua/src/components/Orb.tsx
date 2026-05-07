@@ -8,44 +8,78 @@ interface OrbProps {
 }
 
 export function Orb({ state = 'idle', className, onClick }: OrbProps) {
+  const speaking = state === 'speaking';
+
+  /* Sonar ring color shifts orange → red → yellow to match the core */
+  const sonarColors = [
+    'rgba(255, 110, 20, VAL)',  // orange
+    'rgba(220, 40,  10, VAL)',  // red
+    'rgba(255, 185, 20, VAL)',  // yellow
+  ];
+
+  const makeSonar = (cls: string, color: string, delay: string) => (
+    <div
+      key={cls}
+      className={`absolute inset-0 rounded-full pointer-events-none ${cls}`}
+      style={{ border: `1.5px solid ${color}`, animationDelay: delay }}
+    />
+  );
+
   return (
     <div
       className={cn('relative w-full h-full rounded-full cursor-pointer select-none', className)}
       onClick={onClick}
     >
-      {/* Outer glow halo */}
+      {/* ── Ambient glow halo ── */}
       <div
-        className="absolute rounded-full pointer-events-none"
+        className="absolute rounded-full pointer-events-none orb-hue-shift"
         style={{
-          inset: '-22%',
-          background:
-            'radial-gradient(circle, rgba(255,80,0,0.38) 0%, rgba(255,150,0,0.18) 45%, transparent 70%)',
-          filter: 'blur(10px)',
-          opacity: state === 'speaking' ? 1 : 0.62,
+          inset: '-30%',
+          filter: 'blur(18px)',
+          opacity: speaking ? 0.90 : 0.55,
           transition: 'opacity 1.2s ease',
         }}
       />
 
-      {/* Idle emission rings */}
-      <div className="absolute inset-0 rounded-full orb-ring-1 pointer-events-none"
-        style={{ border: '1.5px solid rgba(255,255,255,0.42)' }} />
-      <div className="absolute inset-0 rounded-full orb-ring-2 pointer-events-none"
-        style={{ border: '1.5px solid rgba(255,255,255,0.32)' }} />
-      <div className="absolute inset-0 rounded-full orb-ring-3 pointer-events-none"
-        style={{ border: '1px solid rgba(255,255,255,0.22)' }} />
-
-      {state === 'speaking' && (
+      {/* ── Sonar rings — idle (3 staggered pulses) ── */}
+      {!speaking && (
         <>
-          <div className="absolute inset-0 rounded-full orb-speak-1 pointer-events-none"
-            style={{ border: '2px solid rgba(255,150,30,0.65)' }} />
-          <div className="absolute inset-0 rounded-full orb-speak-2 pointer-events-none"
-            style={{ border: '1.5px solid rgba(255,210,60,0.48)' }} />
-          <div className="absolute inset-0 rounded-full orb-speak-3 pointer-events-none"
-            style={{ border: '1px solid rgba(255,230,100,0.32)' }} />
+          {makeSonar('orb-sonar-1', 'rgba(235, 90, 20, 0.38)', '0s')}
+          {makeSonar('orb-sonar-2', 'rgba(200, 35,  8, 0.28)', '1.07s')}
+          {makeSonar('orb-sonar-3', 'rgba(245,175, 15, 0.22)', '2.14s')}
         </>
       )}
 
-      {/* Core — warm orange-red base */}
+      {/* ── Sonar rings — speaking (faster, brighter) ── */}
+      {speaking && (
+        <>
+          {makeSonar('orb-sonar-speak-1', 'rgba(255,120, 20, 0.55)', '0s')}
+          {makeSonar('orb-sonar-speak-2', 'rgba(220, 40, 10, 0.42)', '0.53s')}
+          {makeSonar('orb-sonar-speak-3', 'rgba(255,200, 30, 0.30)', '1.06s')}
+        </>
+      )}
+
+      {/* ── Fine emission rings (subtle close glow) ── */}
+      <div className="absolute inset-0 rounded-full orb-ring-1 pointer-events-none"
+        style={{ border: '1px solid rgba(255,140,30,0.35)' }} />
+      <div className="absolute inset-0 rounded-full orb-ring-2 pointer-events-none"
+        style={{ border: '1px solid rgba(200,30,10,0.28)' }} />
+      <div className="absolute inset-0 rounded-full orb-ring-3 pointer-events-none"
+        style={{ border: '1px solid rgba(255,200,40,0.20)' }} />
+
+      {/* ── Speaking close rings ── */}
+      {speaking && (
+        <>
+          <div className="absolute inset-0 rounded-full orb-speak-1 pointer-events-none"
+            style={{ border: '2px solid rgba(255,140,30,0.65)' }} />
+          <div className="absolute inset-0 rounded-full orb-speak-2 pointer-events-none"
+            style={{ border: '1.5px solid rgba(220,40,10,0.48)' }} />
+          <div className="absolute inset-0 rounded-full orb-speak-3 pointer-events-none"
+            style={{ border: '1px solid rgba(255,210,50,0.35)' }} />
+        </>
+      )}
+
+      {/* ── Core sphere ── */}
       <div
         className="absolute inset-0 rounded-full overflow-hidden"
         style={{
@@ -53,14 +87,17 @@ export function Orb({ state = 'idle', className, onClick }: OrbProps) {
             'radial-gradient(circle at 42% 38%, hsl(25 100% 62%) 0%, hsl(12 100% 54%) 55%, hsl(5 100% 50%) 100%)',
         }}
       >
-        {/* Red blob — drifts around */}
+        {/* Hue-shift overlay — cycles orange/red/yellow */}
+        <div className="absolute inset-0 rounded-full orb-hue-shift pointer-events-none" />
+
+        {/* Red blob */}
         <div
           className="absolute orb-blob-1"
           style={{
             inset: '-35%',
             background:
               'radial-gradient(circle at 50% 50%, hsl(0 100% 58%) 0%, hsl(2 100% 52%) 35%, transparent 65%)',
-            opacity: 0.80,
+            opacity: 0.82,
           }}
         />
 
@@ -70,8 +107,8 @@ export function Orb({ state = 'idle', className, onClick }: OrbProps) {
           style={{
             inset: '-35%',
             background:
-              'radial-gradient(circle at 50% 50%, hsl(48 100% 70%) 0%, hsl(42 100% 60%) 30%, transparent 62%)',
-            opacity: 0.72,
+              'radial-gradient(circle at 50% 50%, hsl(48 100% 68%) 0%, hsl(42 100% 58%) 30%, transparent 62%)',
+            opacity: 0.74,
           }}
         />
 
@@ -81,8 +118,8 @@ export function Orb({ state = 'idle', className, onClick }: OrbProps) {
           style={{
             inset: '-35%',
             background:
-              'radial-gradient(circle at 50% 50%, hsl(22 100% 65%) 0%, hsl(14 100% 55%) 32%, transparent 64%)',
-            opacity: 0.60,
+              'radial-gradient(circle at 50% 50%, hsl(22 100% 63%) 0%, hsl(8 100% 52%) 32%, transparent 64%)',
+            opacity: 0.62,
           }}
         />
 
@@ -91,16 +128,16 @@ export function Orb({ state = 'idle', className, onClick }: OrbProps) {
           className="absolute inset-0 rounded-full pointer-events-none"
           style={{
             background:
-              'radial-gradient(circle at 30% 22%, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.12) 30%, transparent 55%)',
+              'radial-gradient(circle at 30% 22%, rgba(255,255,255,0.46) 0%, rgba(255,255,255,0.14) 30%, transparent 55%)',
           }}
         />
 
-        {/* Warm inner rim */}
+        {/* Warm inner rim shadow */}
         <div
           className="absolute inset-0 rounded-full pointer-events-none"
           style={{
             boxShadow:
-              'inset 0 -4px 20px rgba(200,40,0,0.25), inset 0 4px 10px rgba(255,220,80,0.15)',
+              'inset 0 -5px 22px rgba(180,30,0,0.30), inset 0 4px 12px rgba(255,210,70,0.18)',
           }}
         />
       </div>
