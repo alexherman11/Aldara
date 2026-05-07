@@ -73,17 +73,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {/* Outer wrap — full viewport, dark background */}
-        <div
-          className="min-h-[100dvh] w-full flex items-center justify-center"
-          style={{ background: 'hsl(222 20% 6%)' }}
-        >
-          {/* Phone-frame container — relative + fixed height so absolute pages overlay */}
-          <div className="relative w-full max-w-[430px] h-[100dvh] bg-background overflow-hidden shadow-2xl">
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <RouteGuard />
-            </WouterRouter>
-          </div>
+        {/* Full-screen, no phone frame */}
+        <div className="relative w-full h-[100dvh] bg-background overflow-hidden">
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <RouteGuard />
+          </WouterRouter>
         </div>
         <Toaster />
       </TooltipProvider>

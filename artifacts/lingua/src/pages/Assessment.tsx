@@ -140,7 +140,7 @@ export default function Assessment() {
                 }`}
                 style={
                   msg.sender === 'user'
-                    ? { background: 'hsl(15 85% 52% / 0.10)', color: 'hsl(15 80% 75%)' }
+                    ? { background: 'hsl(15 85% 52% / 0.12)', color: 'hsl(15 60% 38%)' }
                     : undefined
                 }
               >

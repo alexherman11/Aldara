@@ -200,7 +200,7 @@ export function SettingsDrawer() {
 
       <DrawerContent className="bg-background border-r border-border h-full w-[300px] rounded-none m-0 flex flex-col">
         <div className="shrink-0 px-5 pt-10 pb-3">
-          <h2 className="font-serif text-xl text-foreground">Lingua</h2>
+          <h2 className="font-serif text-xl text-foreground">Dara</h2>
           <p className="text-xs text-muted-foreground">Tu santuario de aprendizaje</p>
         </div>
 
