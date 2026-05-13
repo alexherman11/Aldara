@@ -51,17 +51,44 @@ export interface SegmentedScorerOptions {
 }
 
 /**
+ * Read sample rate, channel count and bits/sample from the standard 44-byte
+ * RIFF/WAVE header. Returns null if the header looks wrong. Letting us
+ * recover the actual rate is critical — LiveKit emits 48 kHz mono frames in
+ * many deployments, but the scorer used to assume 16 kHz and sliced the WAV
+ * to roughly a third of the intended audio, which Azure then scored against
+ * the wrong phrase.
+ */
+function readWavHeader(
+  wav: Buffer,
+): { sampleRate: number; channels: number; bitsPerSample: number } | null {
+  if (wav.length < 44) return null;
+  if (wav.toString('ascii', 0, 4) !== 'RIFF') return null;
+  if (wav.toString('ascii', 8, 12) !== 'WAVE') return null;
+  return {
+    sampleRate: wav.readUInt32LE(24),
+    channels: wav.readUInt16LE(22),
+    bitsPerSample: wav.readUInt16LE(34),
+  };
+}
+
+/**
  * Slice a WAV file (header + PCM) to a [start, end] second range and return
  * a new WAV buffer. Used to hand Azure only the audio for a given phrase.
+ *
+ * `sampleRate`, `channels` and `bitsPerSample` MUST match the source WAV
+ * exactly — wrong values silently produce a malformed slice the assessor
+ * will reject or score against the wrong audio.
  */
 function sliceWav(
   wav: Buffer,
   startSec: number,
   endSec: number,
   sampleRate: number,
+  channels: number,
+  bitsPerSample: number,
 ): Buffer {
   const headerSize = 44;
-  const bytesPerSample = 2;
+  const bytesPerSample = (bitsPerSample / 8) * channels;
 
   const startByte = headerSize + Math.floor(startSec * sampleRate) * bytesPerSample;
   const endByte = headerSize + Math.floor(endSec * sampleRate) * bytesPerSample;
@@ -75,11 +102,11 @@ function sliceWav(
   header.write('fmt ', 12);
   header.writeUInt32LE(16, 16); // fmt chunk size
   header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt16LE(channels, 22);
   header.writeUInt32LE(sampleRate, 24);
   header.writeUInt32LE(sampleRate * bytesPerSample, 28);
   header.writeUInt16LE(bytesPerSample, 32);
-  header.writeUInt16LE(16, 34);
+  header.writeUInt16LE(bitsPerSample, 34);
   header.write('data', 36);
   header.writeUInt32LE(sliceLen, 40);
 
@@ -95,7 +122,13 @@ export class SegmentedScorer {
    * per-phrase breakdown.
    */
   async score(wav: Buffer): Promise<SegmentedAssessmentResult> {
-    const sampleRate = this.opts.sampleRate ?? 16000;
+    // Trust the WAV header. The previous code defaulted to 16 kHz when the
+    // caller didn't pass one, and LiveKit's default capture rate is often
+    // 48 kHz, which made every slice 3× shorter than intended.
+    const header = readWavHeader(wav);
+    const sampleRate = header?.sampleRate ?? this.opts.sampleRate ?? 16000;
+    const channels = header?.channels ?? 1;
+    const bitsPerSample = header?.bitsPerSample ?? 16;
     const scoringLanguage = this.opts.scoringLanguage ?? 'es-MX';
 
     // 1. Transcribe with timestamps
@@ -122,7 +155,14 @@ export class SegmentedScorer {
       }
 
       // Slice + assess
-      const slice = sliceWav(wav, p.start_sec, p.end_sec, sampleRate);
+      const slice = sliceWav(
+        wav,
+        p.start_sec,
+        p.end_sec,
+        sampleRate,
+        channels,
+        bitsPerSample,
+      );
       const sliceDuration = p.end_sec - p.start_sec;
 
       if (sliceDuration < 0.3) {

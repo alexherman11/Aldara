@@ -7,8 +7,16 @@ const pttBtn = document.getElementById('ptt-btn');
 const debugRefreshBtn = document.getElementById('debug-refresh-btn');
 const endSessionBtn = document.getElementById('end-session-btn');
 const transcriptPanel = document.getElementById('transcript-panel');
+const transcriptEmptyEl = document.getElementById('transcript-empty');
 const agentStateEl = document.getElementById('agent-state');
 const connectionStatusEl = document.getElementById('connection-status');
+
+/** Hide the "Press Connect to start" empty-state on first turn or first event. */
+function clearEmptyState() {
+  if (transcriptEmptyEl && transcriptEmptyEl.parentNode) {
+    transcriptEmptyEl.remove();
+  }
+}
 
 // Debug panel elements
 const debugMetricsEl = document.getElementById('debug-metrics');
@@ -110,7 +118,7 @@ connectBtn.addEventListener('click', async () => {
     isConnected = true;
     connectBtn.textContent = 'Connected';
     connectBtn.classList.add('connected');
-    connectionStatusEl.textContent = 'Connected';
+    connectionStatusEl.textContent = 'In session';
     connectionStatusEl.classList.add('connected');
     pttBtn.disabled = false;
     debugRefreshBtn.disabled = false;
@@ -300,15 +308,18 @@ function setupRoomEvents(room) {
 
   room.on(RoomEvent.Disconnected, () => {
     isConnected = false;
+    isPttActive = false;
     pttBtn.disabled = true;
+    pttBtn.classList.remove('active');
+    pttBtn.textContent = 'Hold to speak';
     debugRefreshBtn.disabled = true;
     endSessionBtn.disabled = true;
     connectBtn.textContent = 'Connect';
     connectBtn.disabled = false;
     connectBtn.classList.remove('connected');
-    connectionStatusEl.textContent = 'Disconnected';
+    connectionStatusEl.textContent = 'Not connected';
     connectionStatusEl.classList.remove('connected');
-    agentStateEl.textContent = 'Disconnected';
+    agentStateEl.textContent = 'Sofía has left';
     agentStateEl.className = '';
   });
 
@@ -332,8 +343,11 @@ function setupRoomEvents(room) {
     if (track.kind === 'audio') {
       const el = track.attach();
       el.id = `audio-${participant.identity}`;
+      // Hide the default audio control bar — Sofía's voice plays automatically
+      // and we don't want the chrome poking out at the bottom of the page.
+      el.style.display = 'none';
+      el.setAttribute('aria-hidden', 'true');
       document.body.appendChild(el);
-      console.log('Audio track attached for', participant.identity);
     }
   });
 
@@ -371,22 +385,26 @@ function setupRoomEvents(room) {
 
 async function pttStart() {
   if (!isConnected || isPttActive) return;
+
+  const target = findAgentIdentity();
+  if (!target) {
+    // Don't even visually enter the listening state — the agent isn't there
+    // to receive the audio. Surface a clear hint instead of failing silently.
+    setMicStatus('error', 'Sofía is still connecting — try again in a moment.');
+    return;
+  }
+
   isPttActive = true;
   pttBtn.classList.add('active');
-  pttBtn.textContent = 'Listening...';
+  pttBtn.textContent = 'Listening…';
 
+  clearEmptyState();
   currentLearnerTurn = document.createElement('div');
   currentLearnerTurn.className = 'transcript-entry learner interim';
   currentLearnerTurn.innerHTML =
     '<div class="speaker">You</div><div class="text"></div>';
   transcriptPanel.appendChild(currentLearnerTurn);
   learnerSegmentTexts.clear();
-
-  const target = findAgentIdentity();
-  if (!target) {
-    console.warn('No agent found in room');
-    return;
-  }
 
   try {
     await room.localParticipant.performRpc({
@@ -396,6 +414,12 @@ async function pttStart() {
     });
   } catch (err) {
     console.error('RPC ptt_start failed:', err);
+    // Clean up the empty interim bubble so the user doesn't stare at a ghost.
+    if (currentLearnerTurn) currentLearnerTurn.remove();
+    currentLearnerTurn = null;
+    isPttActive = false;
+    pttBtn.classList.remove('active');
+    pttBtn.textContent = 'Hold to speak';
   }
 }
 
@@ -403,7 +427,7 @@ async function pttEnd() {
   if (!isPttActive) return;
   isPttActive = false;
   pttBtn.classList.remove('active');
-  pttBtn.textContent = 'Hold to Speak';
+  pttBtn.textContent = 'Hold to speak';
 
   if (currentLearnerTurn) {
     currentLearnerTurn.classList.remove('interim');
@@ -435,27 +459,53 @@ async function pttEnd() {
   }
 }
 
-pttBtn.addEventListener('mousedown', (e) => {
+// Unified pointer + keyboard input for push-to-talk. The previous mousedown +
+// touchstart pair double-fired on hybrid devices; pointer events normalize the
+// two streams. We capture the pointer so the release event fires even if the
+// finger/cursor slides off the button mid-hold (otherwise PTT got stuck open).
+pttBtn.addEventListener('pointerdown', (e) => {
+  if (pttBtn.disabled) return;
   e.preventDefault();
+  pttBtn.setPointerCapture?.(e.pointerId);
   pttStart();
 });
-pttBtn.addEventListener('mouseup', (e) => {
+const releasePointer = (e) => {
+  if (!isPttActive) return;
   e.preventDefault();
+  try { pttBtn.releasePointerCapture?.(e.pointerId); } catch { /* noop */ }
   pttEnd();
-});
-pttBtn.addEventListener('mouseleave', () => {
-  if (isPttActive) pttEnd();
-});
+};
+pttBtn.addEventListener('pointerup', releasePointer);
+pttBtn.addEventListener('pointercancel', releasePointer);
+// `pointerleave` is intentionally not bound — when we have pointer capture the
+// pointer cannot leave the button as far as the event system is concerned, so
+// the up/cancel handlers above are enough.
 
-pttBtn.addEventListener('touchstart', (e) => {
+// Spacebar PTT — feels closer to a real conversation than holding the mouse.
+// Window-level so the user doesn't have to focus the button first. ignored
+// when the user is typing into a form field.
+function isTypingTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName;
+  return (
+    tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable
+  );
+}
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space' || e.repeat) return;
+  if (pttBtn.disabled || isTypingTarget(e.target)) return;
   e.preventDefault();
   pttStart();
 });
-pttBtn.addEventListener('touchend', (e) => {
+window.addEventListener('keyup', (e) => {
+  if (e.code !== 'Space') return;
+  if (!isPttActive || isTypingTarget(e.target)) return;
   e.preventDefault();
   pttEnd();
 });
-pttBtn.addEventListener('touchcancel', () => {
+// If the tab loses focus while PTT is held, end the turn cleanly so the agent
+// doesn't sit "listening" forever.
+window.addEventListener('blur', () => {
   if (isPttActive) pttEnd();
 });
 
@@ -890,12 +940,14 @@ function findAgentIdentity() {
 }
 
 function updateAgentState(state) {
+  // Phrasing matches how a person would describe a friend across the table —
+  // not a status console. Keeps the conversation feeling like a conversation.
   const labels = {
-    initializing: 'Initializing...',
-    idle: 'Ready',
-    listening: 'Listening',
-    thinking: 'Thinking...',
-    speaking: 'Speaking',
+    initializing: 'Sofía is joining…',
+    idle: 'Sofía is ready',
+    listening: 'Sofía is listening',
+    thinking: 'Sofía is thinking…',
+    speaking: 'Sofía is speaking',
   };
   agentStateEl.textContent = labels[state] || state;
   agentStateEl.className = `state-${state}`;
@@ -905,9 +957,10 @@ function updateTutorSegment(segmentId, text, isFinal) {
   let el = segmentElements.get(segmentId);
 
   if (!el) {
+    clearEmptyState();
     el = document.createElement('div');
     el.className = 'transcript-entry tutor interim';
-    el.innerHTML = '<div class="speaker">Sofia</div><div class="text"></div>';
+    el.innerHTML = '<div class="speaker">Sofía</div><div class="text"></div>';
     transcriptPanel.appendChild(el);
     segmentElements.set(segmentId, el);
   }

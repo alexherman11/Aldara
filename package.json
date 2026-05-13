@@ -10,6 +10,7 @@
     "build": "tsc",
     "agent": "tsx src/agent.ts dev",
     "server": "tsx src/token-server.ts",
+    "test": "tsx scripts/run-unit-tests.ts",
     "test-compaction": "tsx scripts/test-compaction.ts"
   },
   "dependencies": {

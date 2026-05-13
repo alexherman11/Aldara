@@ -3,27 +3,33 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Habla - Sofia Spanish Tutor</title>
+  <title>Sofía — Spanish tutor</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div id="app">
     <div id="main-panel">
       <header>
-        <h1>Habla</h1>
-        <div id="connection-status">Disconnected</div>
+        <h1>Sofía<span class="tagline"> · Spanish</span></h1>
+        <div id="connection-status">Not connected</div>
       </header>
 
-      <div id="transcript-panel"></div>
+      <div id="transcript-panel">
+        <div class="transcript-empty" id="transcript-empty">
+          Press <strong>Connect</strong> to start a session with Sofía.
+          She'll greet you in Spanish — answer however feels natural.
+        </div>
+      </div>
 
       <div id="controls">
         <div id="agent-state">Waiting to connect</div>
         <div id="button-row">
           <button id="connect-btn">Connect</button>
-          <button id="debug-refresh-btn" disabled>Refresh Debug</button>
-          <button id="end-session-btn" disabled>End &amp; Compact</button>
+          <button id="debug-refresh-btn" disabled title="Pull a fresh debug snapshot from the agent">Refresh debug</button>
+          <button id="end-session-btn" disabled title="End the session and run compaction">End &amp; compact</button>
         </div>
-        <button id="ptt-btn" disabled>Hold to Speak</button>
+        <button id="ptt-btn" disabled aria-label="Hold to speak — or press and hold the Space bar">Hold to speak</button>
+        <div id="ptt-hint">Hold the button or <kbd>Space</kbd> while you speak</div>
       </div>
     </div>
 

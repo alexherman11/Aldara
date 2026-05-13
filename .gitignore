@@ -2,3 +2,13 @@ node_modules/
 dist/
 .env
 *.tsbuildinfo
+
+# Generated artifacts from local agent runs
+recordings/
+scenarios/
+
+# Vite build output for the React frontend
+web/dist/
+
+# Local-only env files
+.env.local

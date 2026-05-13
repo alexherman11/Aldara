@@ -69,6 +69,44 @@ export function initControllerState(ctx: SessionContext): ControllerState {
   };
 }
 
+/**
+ * Bounds on the ratio target and the per-turn delta. Kept as named constants
+ * because both the LLM call and the unit tests need to agree on them.
+ */
+export const MIN_RATIO_TARGET = 0.10;
+export const MAX_RATIO_TARGET = 0.95;
+export const MAX_RATIO_DELTA = 0.05;
+export const RECENT_ASSESSMENTS_WINDOW = 5;
+
+/**
+ * Pure-function update: clamp the delta, apply it to the ratio target with
+ * bounds, append the assessment to the rolling window, and stamp the turn
+ * number. Extracted from `evaluateTurn` so it can be exercised without an
+ * Anthropic round-trip. The LLM call's job is now reduced to producing the
+ * TurnAssessment; this function is the part we can verify deterministically.
+ */
+export function applyTurnAssessment(
+  state: ControllerState,
+  assessment: TurnAssessment,
+  turnNumber: number,
+): ControllerState {
+  const delta = Math.max(
+    -MAX_RATIO_DELTA,
+    Math.min(MAX_RATIO_DELTA, assessment.ratio_delta),
+  );
+  state.current_ratio_target = Math.max(
+    MIN_RATIO_TARGET,
+    Math.min(MAX_RATIO_TARGET, state.current_ratio_target + delta),
+  );
+  state.last_turn_reason = assessment.reason;
+  state.last_evaluated_turn = turnNumber;
+  state.recent_assessments.push(assessment);
+  if (state.recent_assessments.length > RECENT_ASSESSMENTS_WINDOW) {
+    state.recent_assessments.shift();
+  }
+  return state;
+}
+
 const TURN_CLASSIFIER_PROMPT = `You are the difficulty controller for a Spanish-English language tutor named Sofía. After each learner turn, you classify how the learner handled the previous tutor turn and adjust the bilingual ratio (English vs Spanish) for the next turn.
 
 The bilingual ratio is the fraction of the tutor's output that should be in English. 1.0 = fully English, 0.0 = fully Spanish. A1 learners typically sit around 0.80 (mostly English with sprinkled Spanish), B1 around 0.45, B2 around 0.25.
@@ -178,21 +216,13 @@ export async function evaluateTurn(
     const clean = text.replace(/```json\n?|```\n?/g, '').trim();
     const assessment: TurnAssessment = JSON.parse(clean);
 
-    // Clamp delta to ±0.05 and keep ratio in [0.10, 0.95]
-    const delta = Math.max(-0.05, Math.min(0.05, assessment.ratio_delta));
-    state.current_ratio_target = Math.max(
-      0.1,
-      Math.min(0.95, state.current_ratio_target + delta),
-    );
-    state.last_turn_reason = assessment.reason;
-    state.last_evaluated_turn = ctx.turnCount;
-    state.recent_assessments.push(assessment);
-    if (state.recent_assessments.length > 5) {
-      state.recent_assessments.shift();
-    }
+    // Capture pre-state for the log line so we report the actual applied delta.
+    const before = state.current_ratio_target;
+    applyTurnAssessment(state, assessment, ctx.turnCount);
+    const appliedDelta = state.current_ratio_target - before;
 
     console.log(
-      `[difficulty] turn ${ctx.turnCount}: Δ=${delta >= 0 ? '+' : ''}${delta.toFixed(2)} ` +
+      `[difficulty] turn ${ctx.turnCount}: Δ=${appliedDelta >= 0 ? '+' : ''}${appliedDelta.toFixed(2)} ` +
         `→ ratio=${state.current_ratio_target.toFixed(2)} (${assessment.reason})`,
     );
   } catch (err) {

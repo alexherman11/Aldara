@@ -498,7 +498,16 @@ export default defineAgent({
 
     // Register push-to-talk RPC methods
     ctx.room.localParticipant!.registerRpcMethod('ptt_start', async () => {
-      session.interrupt();
+      // interrupt() throws when interruption is disabled in turn handling
+      // (which it is — see AgentSession config below). Swallow the throw so
+      // the rest of the handler always runs; without this, setAudioEnabled
+      // never got called and every PTT turn produced silent STT input.
+      try {
+        session.interrupt();
+      } catch (err) {
+        // expected when agent isn't currently speaking, or when interruption
+        // is disabled — both are fine. Log at debug level only.
+      }
       session.clearUserTurn();
       agent.beginPttCapture();
       session.input.setAudioEnabled(true);
@@ -528,6 +537,14 @@ export default defineAgent({
             controllerState: agent.controllerState,
           }),
           transcriptLength: sessionContext.fullTranscript.length,
+          // Full transcript exposed for the scenario harness — the Node SDK
+          // doesn't surface TranscriptionReceived events the way the browser
+          // client does, so the harness polls this after each PTT turn.
+          transcript: sessionContext.fullTranscript.map((t) => ({
+            role: t.role,
+            text: t.text,
+            ts: t.ts instanceof Date ? t.ts.toISOString() : String(t.ts),
+          })),
           controllerState: agent.controllerState,
           pronunciation: {
             provider: agent.assessor.name,
@@ -615,4 +632,8 @@ export default defineAgent({
   },
 });
 
-cli.runApp(new ServerOptions({ agent: import.meta.filename }));
+// agentName="sofia" pins this worker behind a named dispatch — the scenario
+// harness creates explicit AgentDispatches per scenario room. The web app
+// uses an auto-dispatched anonymous worker when none is set, so we still
+// need a separate untagged worker (or explicit dispatch on connect) for that.
+cli.runApp(new ServerOptions({ agent: import.meta.filename, agentName: 'sofia' }));
