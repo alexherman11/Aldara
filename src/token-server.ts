@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import {
   createLearnerWithProfile,
   getLearner,
+  getLearnerDebugState,
   patchLearnerProfile,
   type LearnerProfile,
 } from './db/index.js';
@@ -115,6 +116,22 @@ app.get('/api/learner/:id', async (req: Request, res: Response) => {
   }
 });
 
+app.get('/api/learner/:id/state', async (req: Request, res: Response) => {
+  try {
+    const state = await getLearnerDebugState(req.params.id);
+    if (!state) {
+      res.status(404).json({ error: 'learner not found' });
+      return;
+    }
+    res.json(state);
+  } catch (err) {
+    console.error('[token-server] GET /api/learner/:id/state failed:', err);
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 app.patch('/api/learner/:id', async (req: Request, res: Response) => {
   try {
     const patch = sanitizeProfile(req.body?.profile ?? req.body);
@@ -184,6 +201,49 @@ app.get('/api/token', async (req: Request, res: Response) => {
 app.get('/api/livekit-url', (_req, res) => {
   res.json({ url: LIVEKIT_URL });
 });
+
+// Exposes the live-system pieces the agent has wired up. Read at the time of
+// the request; doesn't depend on a session being active.
+app.get('/api/debug/config', (_req, res) => {
+  res.json({
+    livekit: {
+      url: LIVEKIT_URL,
+      agent_name: SOFIA_AGENT_NAME,
+    },
+    pipeline: {
+      stt: 'deepgram nova-3 (multi)',
+      llm: 'openai gpt-4o',
+      tts: 'cartesia sonic-3 (es)',
+      vad: 'silero',
+      pronunciation:
+        process.env.SPEECHACE_API_KEY
+          ? 'speechace'
+          : process.env.AZURE_SPEECH_KEY
+            ? 'azure cognitive services'
+            : 'segmented (local)',
+      compaction_llm: 'anthropic claude (sonnet)',
+      scheduler: 'ts-fsrs',
+    },
+    db: {
+      url_masked: maskUrl(process.env.DATABASE_URL || ''),
+    },
+    env: {
+      record_turns: process.env.RECORD_TURNS === '1',
+      learner_override: !!process.env.LEARNER_ID,
+    },
+  });
+});
+
+function maskUrl(raw: string): string {
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    if (u.password) u.password = '***';
+    return u.toString();
+  } catch {
+    return raw.replace(/:[^:@/]*@/, ':***@');
+  }
+}
 
 // ── Static frontend (production) ─────────────────────────────────────
 

@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import { Orb } from '@/components/Orb';
 import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
+import { patchLearner, patchStoredLearner, readStoredLearner } from '@/lib/api';
 
 const GOALS = [
   { mins: 10, label: '10 min / day', desc: 'Light & consistent' },
@@ -13,12 +14,27 @@ const GOALS = [
 export default function DailyGoal() {
   const [, setLocation] = useLocation();
   const [selected, setSelected] = useState<number | null>(15);
+  const [saving, setSaving] = useState(false);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!selected) return;
-    const raw = localStorage.getItem('lingua_user');
-    const user = raw ? JSON.parse(raw) : {};
-    localStorage.setItem('lingua_user', JSON.stringify({ ...user, dailyGoal: selected, isNew: false }));
+    const stored = readStoredLearner();
+    if (!stored) {
+      setLocation('/signup');
+      return;
+    }
+    setSaving(true);
+    try {
+      await patchLearner(stored.id, { daily_goal_minutes: selected });
+    } catch (err) {
+      console.warn('Failed to patch learner profile:', err);
+      // Don't block the onboarding flow on a backend hiccup — the local
+      // cache will still reflect the choice and the user can keep moving.
+    }
+    patchStoredLearner({
+      profile: { daily_goal_minutes: selected },
+      onboarded: true,
+    });
     setLocation('/home');
   };
 
@@ -33,9 +49,11 @@ export default function DailyGoal() {
         animate={{ opacity: 1, y: 0 }}
         className="text-center mb-8"
       >
-        <h1 className="font-serif text-3xl text-foreground mb-2">Set your daily goal</h1>
+        <h1 className="font-serif text-3xl text-foreground mb-2">
+          Set your daily goal
+        </h1>
         <p className="text-muted-foreground text-sm">
-          How much time will you speak with Dara each day?
+          How much time will you speak with Sofía each day?
         </p>
       </motion.div>
 
@@ -51,14 +69,22 @@ export default function DailyGoal() {
               onClick={() => setSelected(mins)}
               className="w-full flex items-center justify-between px-5 py-4 rounded-2xl border-2 transition-all text-left"
               style={{
-                borderColor: isSelected ? 'hsl(15 85% 52%)' : 'hsl(var(--border))',
-                background: isSelected ? 'hsl(15 85% 52% / 0.08)' : 'hsl(var(--card))',
+                borderColor: isSelected
+                  ? 'hsl(15 85% 52%)'
+                  : 'hsl(var(--border))',
+                background: isSelected
+                  ? 'hsl(15 85% 52% / 0.08)'
+                  : 'hsl(var(--card))',
               }}
             >
               <div>
                 <p
                   className="font-semibold text-base"
-                  style={{ color: isSelected ? 'hsl(15 70% 70%)' : 'hsl(var(--foreground))' }}
+                  style={{
+                    color: isSelected
+                      ? 'hsl(15 70% 70%)'
+                      : 'hsl(var(--foreground))',
+                  }}
                 >
                   {label}
                 </p>
@@ -72,7 +98,9 @@ export default function DailyGoal() {
                     : 'hsl(var(--muted))',
                 }}
               >
-                {isSelected && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                {isSelected && (
+                  <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />
+                )}
               </div>
             </motion.button>
           );
@@ -84,7 +112,7 @@ export default function DailyGoal() {
         animate={{ opacity: 1 }}
         transition={{ delay: 0.35 }}
         onClick={handleConfirm}
-        disabled={!selected}
+        disabled={!selected || saving}
         className="w-full max-w-sm rounded-xl text-base font-semibold text-white transition-opacity disabled:opacity-50"
         style={{
           height: 52,
@@ -93,7 +121,7 @@ export default function DailyGoal() {
         }}
         data-testid="btn-confirm-goal"
       >
-        Start Learning →
+        {saving ? 'Saving…' : 'Start Learning →'}
       </motion.button>
     </div>
   );

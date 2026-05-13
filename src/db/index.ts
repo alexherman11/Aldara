@@ -111,6 +111,56 @@ export async function patchLearnerProfile(
   return result.rows[0] ?? null;
 }
 
+/**
+ * Bundled state read for the debug drawer in the frontend: cores, due cards,
+ * most recent session. Used to surface compaction architecture state without
+ * needing a live LiveKit session.
+ */
+export async function getLearnerDebugState(learnerId: string) {
+  const learnerResult = await pool.query(
+    `SELECT id, cefr_level, session_count, learner_core, tutor_core, core_version, profile, created_at
+     FROM learners WHERE id = $1`,
+    [learnerId],
+  );
+  if (learnerResult.rows.length === 0) return null;
+  const learner = learnerResult.rows[0];
+
+  const cards = await pool.query(
+    `SELECT item_type, item_key, item_context, due, stability, difficulty,
+            reps, lapses, state, last_review
+     FROM fsrs_cards
+     WHERE learner_id = $1
+     ORDER BY due ASC
+     LIMIT 50`,
+    [learnerId],
+  );
+
+  const lastSession = await pool.query(
+    `SELECT id, started_at, ended_at, pre_cores, post_cores, compaction_log,
+            jsonb_array_length(transcript) AS transcript_length
+     FROM sessions
+     WHERE learner_id = $1
+     ORDER BY started_at DESC
+     LIMIT 1`,
+    [learnerId],
+  );
+
+  return {
+    learner: {
+      id: learner.id,
+      cefr_level: learner.cefr_level,
+      session_count: learner.session_count,
+      core_version: learner.core_version,
+      profile: learner.profile,
+      learner_core: learner.learner_core,
+      tutor_core: learner.tutor_core,
+      created_at: learner.created_at,
+    },
+    fsrs_cards: cards.rows,
+    last_session: lastSession.rows[0] ?? null,
+  };
+}
+
 // ── 2. saveCores ───────────────────────────────────────────────────
 
 export async function saveCores(

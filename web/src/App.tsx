@@ -1,27 +1,34 @@
 import React from 'react';
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { Toaster } from "@/components/ui/toaster";
-import { TooltipProvider } from "@/components/ui/tooltip";
-import { AnimatePresence, motion } from "framer-motion";
-import NotFound from "@/pages/not-found";
+import { Switch, Route, Router as WouterRouter, useLocation } from 'wouter';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from '@/components/ui/toaster';
+import { TooltipProvider } from '@/components/ui/tooltip';
+import { AnimatePresence, motion } from 'framer-motion';
+import NotFound from '@/pages/not-found';
 
-import Signup from "@/pages/Signup";
-import Assessment from "@/pages/Assessment";
-import DailyGoal from "@/pages/DailyGoal";
-import Home from "@/pages/Home";
-import Session from "@/pages/Session";
-import Summary from "@/pages/Summary";
+import Signup from '@/pages/Signup';
+import Assessment from '@/pages/Assessment';
+import DailyGoal from '@/pages/DailyGoal';
+import Home from '@/pages/Home';
+import Session from '@/pages/Session';
+import Summary from '@/pages/Summary';
+import { readStoredLearner } from '@/lib/api';
 
 const queryClient = new QueryClient();
 
-const PageWrapper = ({ children, path }: { children: React.ReactNode; path: string }) => (
+const PageWrapper = ({
+  children,
+  path,
+}: {
+  children: React.ReactNode;
+  path: string;
+}) => (
   <motion.div
     key={path}
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
     exit={{ opacity: 0 }}
-    transition={{ duration: 0.28, ease: "easeInOut" }}
+    transition={{ duration: 0.28, ease: 'easeInOut' }}
     className="absolute inset-0 flex flex-col overflow-hidden"
   >
     {children}
@@ -33,8 +40,16 @@ function RouteGuard() {
 
   React.useEffect(() => {
     if (location === '/') {
-      const user = localStorage.getItem('lingua_user');
-      setLocation(user ? '/home' : '/signup');
+      const stored = readStoredLearner();
+      if (!stored) {
+        setLocation('/signup');
+      } else if (!stored.onboarded) {
+        // Mid-onboarding — pick up where they left off. Anything past signup
+        // counts as "needs to finish setting up daily goal."
+        setLocation('/daily-goal');
+      } else {
+        setLocation('/home');
+      }
     }
   }, [location, setLocation]);
 
@@ -44,25 +59,39 @@ function RouteGuard() {
     <AnimatePresence>
       <Switch location={location} key={location}>
         <Route path="/signup">
-          <PageWrapper path="/signup"><Signup /></PageWrapper>
+          <PageWrapper path="/signup">
+            <Signup />
+          </PageWrapper>
         </Route>
         <Route path="/assessment">
-          <PageWrapper path="/assessment"><Assessment /></PageWrapper>
+          <PageWrapper path="/assessment">
+            <Assessment />
+          </PageWrapper>
         </Route>
         <Route path="/daily-goal">
-          <PageWrapper path="/daily-goal"><DailyGoal /></PageWrapper>
+          <PageWrapper path="/daily-goal">
+            <DailyGoal />
+          </PageWrapper>
         </Route>
         <Route path="/home">
-          <PageWrapper path="/home"><Home /></PageWrapper>
+          <PageWrapper path="/home">
+            <Home />
+          </PageWrapper>
         </Route>
         <Route path="/session">
-          <PageWrapper path="/session"><Session /></PageWrapper>
+          <PageWrapper path="/session">
+            <Session />
+          </PageWrapper>
         </Route>
         <Route path="/summary">
-          <PageWrapper path="/summary"><Summary /></PageWrapper>
+          <PageWrapper path="/summary">
+            <Summary />
+          </PageWrapper>
         </Route>
         <Route>
-          <PageWrapper path="404"><NotFound /></PageWrapper>
+          <PageWrapper path="404">
+            <NotFound />
+          </PageWrapper>
         </Route>
       </Switch>
     </AnimatePresence>
@@ -73,9 +102,8 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        {/* Full-screen, no phone frame */}
         <div className="relative w-full h-[100dvh] bg-background overflow-hidden">
-          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
             <RouteGuard />
           </WouterRouter>
         </div>
