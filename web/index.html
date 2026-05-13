@@ -1,98 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Sofía — Spanish tutor</title>
-  <link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <div id="app">
-    <div id="main-panel">
-      <header>
-        <h1>Sofía<span class="tagline"> · Spanish</span></h1>
-        <div id="connection-status">Not connected</div>
-      </header>
-
-      <div id="transcript-panel">
-        <div class="transcript-empty" id="transcript-empty">
-          Press <strong>Connect</strong> to start a session with Sofía.
-          She'll greet you in Spanish — answer however feels natural.
-        </div>
-      </div>
-
-      <div id="controls">
-        <div id="agent-state">Waiting to connect</div>
-        <div id="button-row">
-          <button id="connect-btn">Connect</button>
-          <button id="debug-refresh-btn" disabled title="Pull a fresh debug snapshot from the agent">Refresh debug</button>
-          <button id="end-session-btn" disabled title="End the session and run compaction">End &amp; compact</button>
-        </div>
-        <button id="ptt-btn" disabled aria-label="Hold to speak — or press and hold the Space bar">Hold to speak</button>
-        <div id="ptt-hint">Hold the button or <kbd>Space</kbd> while you speak</div>
-      </div>
-    </div>
-
-    <aside id="debug-panel">
-      <h2>Session State</h2>
-
-      <section class="debug-section" id="controller-section">
-        <h3>Difficulty Controller</h3>
-        <div id="debug-controller" class="debug-content">Not connected</div>
-      </section>
-
-      <section class="debug-section" id="pronunciation-section">
-        <h3>Pronunciation <span id="pron-provider-badge" class="provider-badge"></span></h3>
-        <div id="debug-pronunciation" class="debug-content">Not connected</div>
-      </section>
-
-      <section class="debug-section">
-        <h3>Metrics</h3>
-        <div id="debug-metrics" class="debug-content">Not connected</div>
-      </section>
-
-      <section class="debug-section">
-        <h3>FSRS Items Due <span id="fsrs-count">0</span></h3>
-        <div id="debug-fsrs" class="debug-content">—</div>
-      </section>
-
-      <section class="debug-section">
-        <details>
-          <summary>Learner Core <span id="learner-version"></span></summary>
-          <pre id="debug-learner" class="debug-content">—</pre>
-        </details>
-      </section>
-
-      <section class="debug-section">
-        <details>
-          <summary>Tutor Core <span id="tutor-version"></span></summary>
-          <pre id="debug-tutor" class="debug-content">—</pre>
-        </details>
-      </section>
-
-      <section class="debug-section">
-        <details>
-          <summary>System Prompt</summary>
-          <pre id="debug-prompt" class="debug-content">—</pre>
-        </details>
-      </section>
-
-      <section class="debug-section" id="compaction-result-section" style="display: none;">
-        <h3>Compaction Result</h3>
-        <div id="compaction-status" class="debug-content"></div>
-        <details open>
-          <summary>Core Diff</summary>
-          <div id="compaction-diff" class="debug-content"></div>
-        </details>
-        <details>
-          <summary>FSRS Updates</summary>
-          <pre id="compaction-fsrs" class="debug-content">—</pre>
-        </details>
-      </section>
-    </aside>
-  </div>
-
-  <script src="https://unpkg.com/livekit-client@2/dist/livekit-client.umd.js"></script>
-  <script src="app.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>Sofía — Spanish tutor</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:wght@500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>

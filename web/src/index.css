@@ -1,0 +1,338 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* Warm cream/beige theme */
+:root {
+  --button-outline: rgba(0,0,0, .08);
+  --badge-outline: rgba(0,0,0, .05);
+  --opaque-button-border-intensity: -6;
+  --elevate-1: rgba(0,0,0, .03);
+  --elevate-2: rgba(0,0,0, .07);
+
+  /* Warm cream background */
+  --background: 38 30% 94%;
+  --foreground: 25 20% 18%;
+
+  --border: 35 20% 82%;
+  --input: 35 22% 85%;
+  --ring: 15 85% 52%;
+
+  /* Slightly warmer card */
+  --card: 38 28% 97%;
+  --card-foreground: 25 20% 18%;
+  --card-border: 35 20% 84%;
+
+  --popover: 38 28% 97%;
+  --popover-foreground: 25 20% 18%;
+  --popover-border: 35 20% 84%;
+
+  /* Warm orange primary */
+  --primary: 15 85% 52%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 35 18% 88%;
+  --secondary-foreground: 25 18% 28%;
+
+  --muted: 36 22% 90%;
+  --muted-foreground: 30 12% 48%;
+
+  --accent: 28 80% 52%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --chart-1: 15 85% 52%;
+  --chart-2: 28 85% 56%;
+  --chart-3: 44 90% 52%;
+  --chart-4: 8 80% 50%;
+  --chart-5: 200 70% 52%;
+
+  --sidebar: 38 26% 92%;
+  --sidebar-foreground: 25 20% 18%;
+  --sidebar-border: 35 20% 80%;
+  --sidebar-primary: 15 85% 52%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 36 22% 88%;
+  --sidebar-accent-foreground: 25 18% 28%;
+  --sidebar-ring: 15 85% 52%;
+
+  --app-font-sans: 'Inter', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: Menlo, monospace;
+  --radius: 0.5rem;
+
+  --shadow-2xs: 0px 1px 2px 0px rgba(80,40,10,0.06);
+  --shadow-xs: 0px 2px 4px 0px rgba(80,40,10,0.08);
+  --shadow-sm: 0px 2px 4px 0px rgba(80,40,10,0.08), 0px 1px 2px -1px rgba(80,40,10,0.06);
+  --shadow: 0px 4px 8px 0px rgba(80,40,10,0.10), 0px 2px 4px -1px rgba(80,40,10,0.06);
+  --shadow-md: 0px 4px 12px 0px rgba(80,40,10,0.12), 0px 2px 4px -1px rgba(80,40,10,0.06);
+  --shadow-lg: 0px 8px 20px 0px rgba(80,40,10,0.14), 0px 4px 6px -1px rgba(80,40,10,0.08);
+  --shadow-xl: 0px 16px 32px 0px rgba(80,40,10,0.16), 0px 8px 10px -1px rgba(80,40,10,0.10);
+  --shadow-2xl: 0px 24px 48px 0px rgba(80,40,10,0.18);
+
+  /* Automatically computed borders */
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+/* ===== ORB ANIMATIONS ===== */
+
+/* ---- Shooting stars — arc past the orb occasionally ---- */
+@keyframes shootStar1 {
+  0%, 100% { transform: translate(-78px, -52px) rotate(-30deg) scaleX(0.2); opacity: 0; }
+  10%       { transform: translate(-78px, -52px) rotate(-30deg) scaleX(0.2); opacity: 0; }
+  20%       { transform: translate(-52px, -34px) rotate(-30deg) scaleX(1);   opacity: 0.88; }
+  55%       { transform: translate(28px,   14px) rotate(-30deg) scaleX(1);   opacity: 0.75; }
+  72%       { transform: translate(52px,   26px) rotate(-30deg) scaleX(0.3); opacity: 0; }
+}
+@keyframes shootStar2 {
+  0%, 100% { transform: translate(62px, -60px) rotate(210deg) scaleX(0.2); opacity: 0; }
+  8%        { transform: translate(62px, -60px) rotate(210deg) scaleX(0.2); opacity: 0; }
+  20%       { transform: translate(42px, -38px) rotate(210deg) scaleX(1);   opacity: 0.82; }
+  54%       { transform: translate(-30px, 26px) rotate(210deg) scaleX(1);   opacity: 0.70; }
+  70%       { transform: translate(-52px, 40px) rotate(210deg) scaleX(0.3); opacity: 0; }
+}
+@keyframes shootStar3 {
+  0%, 100% { transform: translate(-60px, 56px) rotate(35deg) scaleX(0.2);  opacity: 0; }
+  14%       { transform: translate(-60px, 56px) rotate(35deg) scaleX(0.2);  opacity: 0; }
+  26%       { transform: translate(-36px, 34px) rotate(35deg) scaleX(1);    opacity: 0.78; }
+  58%       { transform: translate(30px, -22px) rotate(35deg) scaleX(1);    opacity: 0.65; }
+  74%       { transform: translate(50px, -36px) rotate(35deg) scaleX(0.3);  opacity: 0; }
+}
+@keyframes shootStar4 {
+  0%, 100% { transform: translate(70px, 46px) rotate(162deg) scaleX(0.2);  opacity: 0; }
+  6%        { transform: translate(70px, 46px) rotate(162deg) scaleX(0.2);  opacity: 0; }
+  18%       { transform: translate(44px, 28px) rotate(162deg) scaleX(1);    opacity: 0.84; }
+  52%       { transform: translate(-28px, -20px) rotate(162deg) scaleX(1);  opacity: 0.70; }
+  68%       { transform: translate(-48px, -34px) rotate(162deg) scaleX(0.3); opacity: 0; }
+}
+
+.orb-star-1 { animation: shootStar1  9.0s ease-in-out infinite  0.4s; }
+.orb-star-2 { animation: shootStar2 12.5s ease-in-out infinite  4.8s; }
+.orb-star-3 { animation: shootStar3 10.5s ease-in-out infinite  8.2s; }
+.orb-star-4 { animation: shootStar4 14.0s ease-in-out infinite  1.9s; }
+
+/* ---- Sonar pulse rings — expand outward & fade ---- */
+@keyframes orbSonar {
+  0%   { transform: scale(1);   opacity: 0.38; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+.orb-sonar-1 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite; }
+.orb-sonar-2 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 1.07s; }
+.orb-sonar-3 { animation: orbSonar 3.2s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 2.14s; }
+
+/* Speaking sonar — faster */
+@keyframes orbSonarFast {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.0); opacity: 0; }
+}
+.orb-sonar-speak-1 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite; }
+.orb-sonar-speak-2 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 0.53s; }
+.orb-sonar-speak-3 { animation: orbSonarFast 1.6s cubic-bezier(0.2, 0.6, 0.4, 1) infinite 1.06s; }
+
+/* ---- Hue-shift overlay cycling orange → red → yellow ---- */
+@keyframes orbHueShift {
+  0%   { background: radial-gradient(circle at 50% 50%, hsla(20,100%,62%,0.55) 0%, transparent 70%); }
+  28%  { background: radial-gradient(circle at 50% 50%, hsla(0,100%,54%,0.55)  0%, transparent 70%); }
+  55%  { background: radial-gradient(circle at 50% 50%, hsla(45,100%,62%,0.55) 0%, transparent 70%); }
+  78%  { background: radial-gradient(circle at 50% 50%, hsla(8,100%,58%,0.55)  0%, transparent 70%); }
+  100% { background: radial-gradient(circle at 50% 50%, hsla(20,100%,62%,0.55) 0%, transparent 70%); }
+}
+.orb-hue-shift { animation: orbHueShift 5s ease-in-out infinite; }
+
+/* ---- Idle emission rings (retained for glow) ---- */
+@keyframes orbRing1 {
+  0%, 100% { transform: scale(1); opacity: 0.42; }
+  50% { transform: scale(1.18); opacity: 0; }
+}
+@keyframes orbRing2 {
+  0%, 100% { transform: scale(1); opacity: 0.32; }
+  50% { transform: scale(1.28); opacity: 0; }
+}
+@keyframes orbRing3 {
+  0%, 100% { transform: scale(1); opacity: 0.22; }
+  50% { transform: scale(1.38); opacity: 0; }
+}
+
+.orb-ring-1 { animation: orbRing1 3.8s ease-in-out infinite; }
+.orb-ring-2 { animation: orbRing2 3.8s ease-in-out infinite 0.9s; }
+.orb-ring-3 { animation: orbRing3 3.8s ease-in-out infinite 1.8s; }
+
+/* Speaking rings — faster, more energetic */
+@keyframes orbSpeak1 {
+  0%, 100% { transform: scale(1.02); opacity: 0.65; }
+  50% { transform: scale(1.22); opacity: 0; }
+}
+@keyframes orbSpeak2 {
+  0%, 100% { transform: scale(1.04); opacity: 0.48; }
+  50% { transform: scale(1.32); opacity: 0; }
+}
+@keyframes orbSpeak3 {
+  0%, 100% { transform: scale(1.06); opacity: 0.32; }
+  50% { transform: scale(1.44); opacity: 0; }
+}
+
+.orb-speak-1 { animation: orbSpeak1 1.4s ease-in-out infinite; }
+.orb-speak-2 { animation: orbSpeak2 1.4s ease-in-out infinite 0.35s; }
+.orb-speak-3 { animation: orbSpeak3 1.4s ease-in-out infinite 0.7s; }
+
+/* Blob drift animations — slow, lava-lamp style */
+@keyframes orbBlob1 {
+  0%   { transform: translate(-12%, -10%) rotate(0deg); }
+  25%  { transform: translate(8%, -6%) rotate(90deg); }
+  50%  { transform: translate(6%, 12%) rotate(180deg); }
+  75%  { transform: translate(-10%, 6%) rotate(270deg); }
+  100% { transform: translate(-12%, -10%) rotate(360deg); }
+}
+@keyframes orbBlob2 {
+  0%   { transform: translate(10%, 8%) rotate(0deg); }
+  25%  { transform: translate(-6%, 12%) rotate(-90deg); }
+  50%  { transform: translate(-10%, -8%) rotate(-180deg); }
+  75%  { transform: translate(8%, -10%) rotate(-270deg); }
+  100% { transform: translate(10%, 8%) rotate(-360deg); }
+}
+@keyframes orbBlob3 {
+  0%   { transform: translate(0%, -14%) rotate(0deg); }
+  33%  { transform: translate(12%, 8%) rotate(120deg); }
+  66%  { transform: translate(-10%, 10%) rotate(240deg); }
+  100% { transform: translate(0%, -14%) rotate(360deg); }
+}
+
+.orb-blob-1 { animation: orbBlob1 11s linear infinite; }
+.orb-blob-2 { animation: orbBlob2 14s linear infinite; }
+.orb-blob-3 { animation: orbBlob3 9s linear infinite; }
+
+/* Elevation utility system */
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
+
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: -1;
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: 999;
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .border.hover-elevate:not(.no-default-hover-elevate)::after,
+  .border.active-elevate:not(.no-default-active-elevate)::after {
+    inset: -1px;
+  }
+}
