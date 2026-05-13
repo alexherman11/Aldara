@@ -30,6 +30,87 @@ export async function getOrCreateLearner(learnerId: string) {
   return result.rows[0];
 }
 
+// ── 1b. Learner profile (signup data) ──────────────────────────────
+
+export interface LearnerProfile {
+  name?: string;
+  email?: string;
+  age?: number;
+  native_lang?: string;
+  daily_goal_minutes?: number;
+  streak?: number;
+  onboarded_at?: string;
+  cefr_initial?: string;
+}
+
+/**
+ * Create a new learner row with profile data captured at signup. Generates a
+ * fresh UUID (we want learner ids server-side so the client can't collide
+ * with an existing learner by spoofing the id field).
+ *
+ * If `email` is provided and already exists, returns the existing learner
+ * instead — local dev resets the browser frequently, and we don't want
+ * every signup to create yet another row.
+ */
+export async function createLearnerWithProfile(
+  profile: LearnerProfile,
+  cefrLevel: string = 'A1',
+) {
+  if (profile.email) {
+    const existing = await pool.query(
+      'SELECT * FROM learners WHERE email = $1',
+      [profile.email],
+    );
+    if (existing.rows.length > 0) {
+      // Update profile fields on the existing row so the latest signup wins.
+      const updated = await pool.query(
+        `UPDATE learners
+         SET profile = $2, cefr_level = $3
+         WHERE id = $1
+         RETURNING *`,
+        [existing.rows[0].id, JSON.stringify(profile), cefrLevel],
+      );
+      return updated.rows[0];
+    }
+  }
+
+  const result = await pool.query(
+    `INSERT INTO learners (learner_core, tutor_core, core_version, profile, email, cefr_level)
+     VALUES ($1, $2, 0, $3, $4, $5)
+     RETURNING *`,
+    [
+      JSON.stringify(SEED_LEARNER_CORE),
+      JSON.stringify(SEED_TUTOR_CORE),
+      JSON.stringify(profile),
+      profile.email ?? null,
+      cefrLevel,
+    ],
+  );
+  return result.rows[0];
+}
+
+export async function getLearner(learnerId: string) {
+  const result = await pool.query(
+    'SELECT * FROM learners WHERE id = $1',
+    [learnerId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function patchLearnerProfile(
+  learnerId: string,
+  patch: Partial<LearnerProfile>,
+) {
+  const result = await pool.query(
+    `UPDATE learners
+     SET profile = COALESCE(profile, '{}'::jsonb) || $2::jsonb
+     WHERE id = $1
+     RETURNING *`,
+    [learnerId, JSON.stringify(patch)],
+  );
+  return result.rows[0] ?? null;
+}
+
 // ── 2. saveCores ───────────────────────────────────────────────────
 
 export async function saveCores(

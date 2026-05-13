@@ -56,17 +56,11 @@ async function main() {
   const target = new Client({ connectionString: targetUrl.toString() });
   await target.connect();
 
-  // Quick check: do the tables already exist?
-  const tables = await target.query<{ table_name: string }>(
-    `SELECT table_name FROM information_schema.tables
-     WHERE table_schema='public' AND table_name IN ('learners','sessions','fsrs_cards')`,
-  );
-  if (tables.rows.length === 3) {
-    console.log('  schema already applied (3/3 tables present)');
-  } else {
-    await target.query(schemaSql);
-    console.log('  schema applied');
-  }
+  // Schema is idempotent (CREATE TABLE IF NOT EXISTS + ALTER ... ADD COLUMN
+  // IF NOT EXISTS) — always re-run so newly-added columns get picked up on
+  // existing databases.
+  await target.query(schemaSql);
+  console.log('  schema applied (idempotent)');
 
   // Verify
   const verify = await target.query<{ table_name: string }>(

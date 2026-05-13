@@ -1,8 +1,15 @@
 import 'dotenv/config';
-import express from 'express';
+import express, { type Request, type Response } from 'express';
 import { AccessToken, AgentDispatchClient } from 'livekit-server-sdk';
 import { dirname, join } from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+  createLearnerWithProfile,
+  getLearner,
+  patchLearnerProfile,
+  type LearnerProfile,
+} from './db/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -32,23 +39,126 @@ const dispatchClient = new AgentDispatchClient(
 );
 
 const app = express();
+app.use(express.json({ limit: '64kb' }));
 
-// Serve static web files
-app.use(express.static(join(__dirname, '..', 'web')));
+// ── Learner endpoints (signup / profile) ─────────────────────────────
+
+const ALLOWED_PROFILE_KEYS: Array<keyof LearnerProfile> = [
+  'name',
+  'email',
+  'age',
+  'native_lang',
+  'daily_goal_minutes',
+  'streak',
+  'onboarded_at',
+  'cefr_initial',
+];
+
+function sanitizeProfile(body: unknown): LearnerProfile {
+  if (!body || typeof body !== 'object') return {};
+  const src = body as Record<string, unknown>;
+  const out: LearnerProfile = {};
+  for (const k of ALLOWED_PROFILE_KEYS) {
+    if (src[k] === undefined || src[k] === null) continue;
+    // Light type coercion — the React signup form sends "age" as a string.
+    if (k === 'age' || k === 'daily_goal_minutes' || k === 'streak') {
+      const n = Number(src[k]);
+      if (Number.isFinite(n)) (out as Record<string, unknown>)[k] = n;
+    } else {
+      (out as Record<string, unknown>)[k] = String(src[k]);
+    }
+  }
+  return out;
+}
+
+app.post('/api/learner', async (req: Request, res: Response) => {
+  try {
+    const profile = sanitizeProfile(req.body?.profile ?? req.body);
+    const cefrLevel = typeof req.body?.cefrLevel === 'string'
+      ? req.body.cefrLevel
+      : profile.cefr_initial || 'A1';
+
+    const learner = await createLearnerWithProfile(profile, cefrLevel);
+    res.json({
+      id: learner.id,
+      cefr_level: learner.cefr_level,
+      profile: learner.profile,
+      created_at: learner.created_at,
+    });
+  } catch (err) {
+    console.error('[token-server] POST /api/learner failed:', err);
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.get('/api/learner/:id', async (req: Request, res: Response) => {
+  try {
+    const learner = await getLearner(req.params.id);
+    if (!learner) {
+      res.status(404).json({ error: 'learner not found' });
+      return;
+    }
+    res.json({
+      id: learner.id,
+      cefr_level: learner.cefr_level,
+      profile: learner.profile,
+      session_count: learner.session_count,
+      created_at: learner.created_at,
+    });
+  } catch (err) {
+    console.error('[token-server] GET /api/learner failed:', err);
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+app.patch('/api/learner/:id', async (req: Request, res: Response) => {
+  try {
+    const patch = sanitizeProfile(req.body?.profile ?? req.body);
+    const learner = await patchLearnerProfile(req.params.id, patch);
+    if (!learner) {
+      res.status(404).json({ error: 'learner not found' });
+      return;
+    }
+    res.json({
+      id: learner.id,
+      cefr_level: learner.cefr_level,
+      profile: learner.profile,
+    });
+  } catch (err) {
+    console.error('[token-server] PATCH /api/learner failed:', err);
+    res
+      .status(500)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// ── LiveKit token endpoint ───────────────────────────────────────────
 
 // Token endpoint — also pre-dispatches the Sofía agent into the room so the
-// browser doesn't have to wait/retry for an agent to materialize.
-app.get('/api/token', async (req, res) => {
-  const room = (req.query.room as string) || 'habla-session';
+// browser doesn't have to wait/retry for an agent to materialize. The
+// learnerId travels as dispatch metadata so the agent picks up the right
+// Postgres row on connect (replaces the old hardcoded LEARNER_ID env var).
+app.get('/api/token', async (req: Request, res: Response) => {
+  const room = (req.query.room as string) || `habla-${Date.now()}`;
   const identity = (req.query.identity as string) || 'learner';
+  const learnerId = (req.query.learnerId as string) || '';
 
   // Fire the dispatch BEFORE returning the token so by the time the browser
   // connects, LiveKit already has a pending dispatch waiting for this room.
   // Failure here doesn't block token issuance — surface a warning instead so
   // a misconfigured dispatch doesn't make the page un-loadable.
   try {
-    const d = await dispatchClient.createDispatch(room, SOFIA_AGENT_NAME);
-    console.log(`[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} (id=${d.id})`);
+    const metadata = learnerId ? JSON.stringify({ learnerId }) : '';
+    const d = await dispatchClient.createDispatch(room, SOFIA_AGENT_NAME, {
+      metadata,
+    });
+    console.log(
+      `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} (id=${d.id}, learnerId=${learnerId || '∅'})`,
+    );
   } catch (err) {
     console.warn(`[token-server] dispatch failed for room ${room}:`, err);
   }
@@ -68,16 +178,35 @@ app.get('/api/token', async (req, res) => {
   });
 
   const jwt = await token.toJwt();
-
-  res.json({ token: jwt, url: LIVEKIT_URL });
+  res.json({ token: jwt, url: LIVEKIT_URL, room });
 });
 
-// LiveKit URL endpoint (for client reference)
 app.get('/api/livekit-url', (_req, res) => {
   res.json({ url: LIVEKIT_URL });
 });
 
+// ── Static frontend (production) ─────────────────────────────────────
+
+// In dev, Vite serves the frontend on :5173 and proxies /api to us. In prod
+// (after `npm run build` inside web/), Vite emits to web/dist and we serve
+// it. Falling back to web/ raw also works for the old vanilla HTML, but
+// since we removed it the dist path is the only useful one.
+const webDist = join(__dirname, '..', 'web', 'dist');
+if (existsSync(webDist)) {
+  app.use(express.static(webDist));
+  // SPA fallback — wouter handles routing client-side, so any unmatched GET
+  // that's NOT under /api should return the React shell.
+  app.get(/^(?!\/api).*/, (_req, res) => {
+    res.sendFile(join(webDist, 'index.html'));
+  });
+}
+
 app.listen(PORT, () => {
   console.log(`Token server running on http://localhost:${PORT}`);
   console.log(`LiveKit URL: ${LIVEKIT_URL}`);
+  if (existsSync(webDist)) {
+    console.log(`Serving built frontend from ${webDist}`);
+  } else {
+    console.log(`No web/dist found — start Vite separately on :5173 for dev`);
+  }
 });
