@@ -96,7 +96,7 @@ app.post('/api/learner', async (req: Request, res: Response) => {
 
 app.get('/api/learner/:id', async (req: Request, res: Response) => {
   try {
-    const learner = await getLearner(req.params.id);
+    const learner = await getLearner(String(req.params.id));
     if (!learner) {
       res.status(404).json({ error: 'learner not found' });
       return;
@@ -118,7 +118,7 @@ app.get('/api/learner/:id', async (req: Request, res: Response) => {
 
 app.get('/api/learner/:id/state', async (req: Request, res: Response) => {
   try {
-    const state = await getLearnerDebugState(req.params.id);
+    const state = await getLearnerDebugState(String(req.params.id));
     if (!state) {
       res.status(404).json({ error: 'learner not found' });
       return;
@@ -135,7 +135,7 @@ app.get('/api/learner/:id/state', async (req: Request, res: Response) => {
 app.patch('/api/learner/:id', async (req: Request, res: Response) => {
   try {
     const patch = sanitizeProfile(req.body?.profile ?? req.body);
-    const learner = await patchLearnerProfile(req.params.id, patch);
+    const learner = await patchLearnerProfile(String(req.params.id), patch);
     if (!learner) {
       res.status(404).json({ error: 'learner not found' });
       return;
