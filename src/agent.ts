@@ -164,6 +164,35 @@ function buildPronunciationRenderData(
 const CARTESIA_VOICE_ID =
   process.env.CARTESIA_VOICE_ID || '5c5ad5e7-1020-476b-8b91-fdcbe9cc313c';
 
+// Pick a TTS at runtime so we can flip providers without code edits when one
+// goes down or runs out of credits. TTS_PROVIDER=openai uses gpt-4o-mini-tts
+// with a Spanish-warm female voice ("shimmer"). Default stays on Cartesia,
+// matching the original Habla voice.
+function createTts() {
+  const provider = (process.env.TTS_PROVIDER || 'cartesia').toLowerCase();
+  if (provider === 'openai') {
+    const voice = (process.env.OPENAI_TTS_VOICE || 'shimmer') as
+      | 'alloy'
+      | 'ash'
+      | 'ballad'
+      | 'coral'
+      | 'echo'
+      | 'fable'
+      | 'nova'
+      | 'onyx'
+      | 'sage'
+      | 'shimmer';
+    console.log(`[agent] TTS: openai gpt-4o-mini-tts (voice=${voice})`);
+    return new openai.TTS({ model: 'gpt-4o-mini-tts', voice });
+  }
+  console.log(`[agent] TTS: cartesia sonic-3 (voice=${CARTESIA_VOICE_ID})`);
+  return new cartesia.TTS({
+    model: 'sonic-3',
+    voice: CARTESIA_VOICE_ID,
+    language: 'es',
+  });
+}
+
 // Fallback learner used when the dispatch metadata doesn't carry one (older
 // scripts, the scenario harness, etc.). The web prototype passes the real
 // learnerId from the signed-up user via the dispatch metadata — see
@@ -507,11 +536,7 @@ export default defineAgent({
     const session = new voice.AgentSession<SessionContext>({
       stt: new deepgram.STT({ model: 'nova-3', language: 'multi' }),
       llm: new openai.LLM({ model: 'gpt-4o' }),
-      tts: new cartesia.TTS({
-        model: 'sonic-3',
-        voice: CARTESIA_VOICE_ID,
-        language: 'es',
-      }),
+      tts: createTts(),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
       turnHandling: {

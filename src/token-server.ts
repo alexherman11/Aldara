@@ -213,7 +213,10 @@ app.get('/api/debug/config', (_req, res) => {
     pipeline: {
       stt: 'deepgram nova-3 (multi)',
       llm: 'openai gpt-4o',
-      tts: 'cartesia sonic-3 (es)',
+      tts:
+        (process.env.TTS_PROVIDER || 'cartesia').toLowerCase() === 'openai'
+          ? `openai gpt-4o-mini-tts (voice=${process.env.OPENAI_TTS_VOICE || 'shimmer'})`
+          : 'cartesia sonic-3 (es)',
       vad: 'silero',
       pronunciation:
         process.env.SPEECHACE_API_KEY
