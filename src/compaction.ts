@@ -6,6 +6,7 @@ import { createEmptyCard, fsrs, Rating } from 'ts-fsrs';
 import { saveCores, saveSession, upsertCard, getDueCards } from './db/index.js';
 import type { SessionContext } from './session-context.js';
 import type { CompactionResult, LearnerCore, TutorCore } from './types.js';
+import type { ControllerState } from './difficulty-controller.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const COMPACTION_PROMPT = readFileSync(
@@ -32,6 +33,7 @@ export interface CompactionOutcome {
  */
 export async function runCompaction(
   ctx: SessionContext,
+  controllerState?: ControllerState,
 ): Promise<CompactionOutcome> {
   const startedAt = Date.now();
 
@@ -45,6 +47,25 @@ export async function runCompaction(
 
   const durationMin =
     (startedAt - ctx.sessionStartedAt.getTime()) / 1000 / 60;
+
+  // Build the live-controller summary if we have one. This carries the session's
+  // hard-won difficulty calibration into compaction so it can persist to tutor_core.
+  const controllerSummary = controllerState
+    ? `
+
+<live_controller_state>
+Final bilingual ratio target after this session: ${controllerState.current_ratio_target.toFixed(2)} (${Math.round(
+        controllerState.current_ratio_target * 100,
+      )}% English)
+Final edge state: ${controllerState.edge_state}
+Last edge directive: ${controllerState.last_edge_reason}
+Last turn read: ${controllerState.last_turn_reason}
+
+Use this as a strong signal for tutor_core.bilingual_ratio_target. The ratio above
+reflects the live difficulty controller's adjustments across the session — prefer it
+over the entering value unless the transcript strongly suggests overshooting.
+</live_controller_state>`
+    : '';
 
   const anthropic = new Anthropic();
 
@@ -71,7 +92,7 @@ ${transcriptText}
 <session_metrics>
 Turn count: ${ctx.turnCount}
 Session duration: ${durationMin.toFixed(1)} minutes
-</session_metrics>
+</session_metrics>${controllerSummary}
         `.trim(),
       },
     ],

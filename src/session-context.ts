@@ -4,6 +4,7 @@ import {
   createSession,
 } from './db/index.js';
 import type { LearnerCore, TutorCore } from './types.js';
+import type { PronunciationAssessment } from './pronunciation/index.js';
 
 export interface TranscriptEntry {
   role: 'learner' | 'tutor';
@@ -26,6 +27,17 @@ export interface SessionContext {
   fullTranscript: TranscriptEntry[];
   turnCount: number;
   sessionStartedAt: Date;
+
+  /**
+   * Pronunciation assessments captured during this session, in turn order.
+   * Most-recent-last. Used by the prompt builder to surface the latest
+   * annotation to the LLM, by the debug panel to show what was flagged, and
+   * by compaction to write per-phoneme trajectories into the learner core.
+   *
+   * Optional so legacy synthetic SessionContexts (test scripts, old code) can
+   * omit it. Production agents always populate via initSessionContext().
+   */
+  recentAssessments?: PronunciationAssessment[];
 }
 
 export async function loadSessionContext(
@@ -57,5 +69,6 @@ export async function loadSessionContext(
     fullTranscript: [],
     turnCount: 0,
     sessionStartedAt: new Date(),
+    recentAssessments: [],
   };
 }

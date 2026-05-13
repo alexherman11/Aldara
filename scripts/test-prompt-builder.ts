@@ -89,7 +89,9 @@ function test1_freshLearner(): boolean {
     includes(prompt, 'Spoken Aloud'),
     includes(prompt, 'NEVER use parenthetical pronunciation guides'),
     includes(prompt, 'new learner'),
-    includes(prompt, '70-80% English'),
+    // Code-switching is now the primary teaching tool (Phase 6 persona rewrite)
+    includes(prompt, 'Code-switching'),
+    includes(prompt, 'Sandwich technique'),
     excludes(prompt, 'Vocabulary due for review'),
     excludes(prompt, 'Level reminder'),
   ]);
@@ -185,6 +187,162 @@ function test7_emptyFsrsSkipsSection(): boolean {
   ]);
 }
 
+function test9_pronunciationInjection(): boolean {
+  const ctx = makeCtx({
+    recentAssessments: [
+      {
+        reference_text: 'tengo un perro grande',
+        overall: { accuracy: 78, fluency: 85, completeness: 100, pronunciation: 78 },
+        words: [
+          { word: 'tengo', accuracy_score: 92, error_type: 'None' },
+          { word: 'un', accuracy_score: 95, error_type: 'None' },
+          {
+            word: 'perro',
+            accuracy_score: 62,
+            error_type: 'Mispronunciation',
+            phonemes: [
+              {
+                phoneme: 'r',
+                accuracy_score: 28,
+                alternatives: [{ phoneme: 'ɾ', confidence: 0.81 }],
+              },
+            ],
+          },
+          { word: 'grande', accuracy_score: 88, error_type: 'None' },
+        ],
+        provider: 'speechace',
+        latency_ms: 850,
+      },
+    ],
+  });
+
+  const prompt = buildSystemPrompt(ctx);
+  return runChecks('Test 9: Pronunciation annotation injection', [
+    includes(prompt, 'Pronunciation flags from the learner'),
+    includes(prompt, 'tengo un perro grande'),
+    includes(prompt, 'perro'),
+    includes(prompt, '/r/ → /ɾ/'),
+    includes(prompt, 'On pronunciation'),
+    excludes(prompt, 'tengo: '), // not flagged
+  ]);
+}
+
+function test11_pronunciationMultiPhonemeAndDivergence(): boolean {
+  // Word with TWO weak phonemes (multi-phoneme L1 pattern) and a recognized
+  // text that diverges from reference (STT auto-corrected).
+  const ctx = makeCtx({
+    recentAssessments: [
+      {
+        reference_text: 'mi perro',
+        recognized_text: 'mi pero',
+        overall: { accuracy: 55, fluency: 80, completeness: 100, pronunciation: 55 },
+        words: [
+          { word: 'mi', accuracy_score: 95, error_type: 'None' },
+          {
+            word: 'perro',
+            accuracy_score: 40,
+            error_type: 'Mispronunciation',
+            phonemes: [
+              {
+                phoneme: 'r',
+                accuracy_score: 25,
+                alternatives: [{ phoneme: 'ɾ', confidence: 0.85 }],
+              },
+              {
+                phoneme: 'e',
+                accuracy_score: 50,
+                alternatives: [{ phoneme: 'ɛ', confidence: 0.70 }],
+              },
+            ],
+          },
+        ],
+        provider: 'azure',
+        latency_ms: 900,
+      },
+    ],
+  });
+
+  const prompt = buildSystemPrompt(ctx);
+  return runChecks('Test 11: Multi-phoneme + STT divergence', [
+    includes(prompt, '/r/ → /ɾ/'),
+    includes(prompt, '/e/ → /ɛ/'), // both phoneme substitutions surfaced
+    includes(prompt, 'STT/assessor mismatch'),
+    includes(prompt, 'pero'),
+    includes(prompt, 'perro'),
+  ]);
+}
+
+function test12_pronunciationTrendSummary(): boolean {
+  // Five turns where /r/ is weak in 3 of 5 (≥2 = persistent)
+  const mkAssessment = (
+    ref: string,
+    rrWords: Array<[string, number]>,
+  ) => ({
+    reference_text: ref,
+    overall: { accuracy: 70, fluency: 85, completeness: 100, pronunciation: 70 },
+    words: rrWords.map(([w, score]) => ({
+      word: w,
+      accuracy_score: score,
+      error_type: (score < 70 ? 'Mispronunciation' : 'None') as
+        | 'Mispronunciation'
+        | 'None',
+      phonemes: w.includes('rr')
+        ? [
+            {
+              phoneme: 'r',
+              accuracy_score: score < 70 ? 25 : 90,
+              alternatives:
+                score < 70
+                  ? [{ phoneme: 'ɾ', confidence: 0.8 }]
+                  : undefined,
+            },
+          ]
+        : undefined,
+    })),
+    provider: 'azure',
+    latency_ms: 900,
+  });
+
+  const ctx = makeCtx({
+    recentAssessments: [
+      mkAssessment('el perro corre', [['el', 95], ['perro', 30], ['corre', 35]]),
+      mkAssessment('hola amigo', [['hola', 90], ['amigo', 92]]),
+      mkAssessment('un perrito', [['un', 95], ['perrito', 40]]),
+      mkAssessment('está cerrado', [['está', 95], ['cerrado', 45]]),
+      mkAssessment('buenas tardes', [['buenas', 92], ['tardes', 90]]),
+    ],
+  });
+
+  const prompt = buildSystemPrompt(ctx);
+  return runChecks('Test 12: Pronunciation trend summary surfaces persistent /r/', [
+    includes(prompt, 'Pronunciation patterns over recent turns'),
+    includes(prompt, '/r/'),
+    includes(prompt, 'Recurring phoneme weakness'),
+  ]);
+}
+
+function test10_pronunciationCleanAssessmentSkipped(): boolean {
+  const ctx = makeCtx({
+    recentAssessments: [
+      {
+        reference_text: 'hola Sofía',
+        overall: { accuracy: 100, fluency: 100, completeness: 100, pronunciation: 100 },
+        words: [
+          { word: 'hola', accuracy_score: 100, error_type: 'None' },
+          { word: 'Sofía', accuracy_score: 100, error_type: 'None' },
+        ],
+        provider: 'noop',
+        latency_ms: 0,
+      },
+    ],
+  });
+
+  const prompt = buildSystemPrompt(ctx);
+  return runChecks('Test 10: Clean pronunciation skips annotation section', [
+    excludes(prompt, 'Pronunciation flags from the learner'),
+  ]);
+}
+
 function test8_ttsRulesAlwaysFirst(): boolean {
   const ctx = makeCtx();
   const prompt = buildSystemPrompt(ctx);
@@ -213,6 +371,10 @@ async function main() {
     test6_explicitCefrOverride(),
     test7_emptyFsrsSkipsSection(),
     test8_ttsRulesAlwaysFirst(),
+    test9_pronunciationInjection(),
+    test10_pronunciationCleanAssessmentSkipped(),
+    test11_pronunciationMultiPhonemeAndDivergence(),
+    test12_pronunciationTrendSummary(),
   ];
 
   const passed = results.filter(Boolean).length;

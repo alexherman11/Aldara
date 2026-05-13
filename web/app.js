@@ -16,6 +16,9 @@ const debugFsrsEl = document.getElementById('debug-fsrs');
 const debugLearnerEl = document.getElementById('debug-learner');
 const debugTutorEl = document.getElementById('debug-tutor');
 const debugPromptEl = document.getElementById('debug-prompt');
+const debugControllerEl = document.getElementById('debug-controller');
+const debugPronunciationEl = document.getElementById('debug-pronunciation');
+const pronProviderBadgeEl = document.getElementById('pron-provider-badge');
 const fsrsCountEl = document.getElementById('fsrs-count');
 const learnerVersionEl = document.getElementById('learner-version');
 const tutorVersionEl = document.getElementById('tutor-version');
@@ -45,8 +48,32 @@ connectBtn.addEventListener('click', async () => {
 
   connectBtn.textContent = 'Connecting...';
   connectBtn.disabled = true;
+  setMicStatus('requesting', 'Requesting mic permission...');
 
   try {
+    // Request mic permission BEFORE connecting to LiveKit so that a denial
+    // is surfaced cleanly rather than silently caught after WebRTC is up.
+    let micStream;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true },
+      });
+      // We don't actually use this stream — LiveKit will request its own.
+      // We just needed the permission prompt to resolve.
+      micStream.getTracks().forEach((t) => t.stop());
+    } catch (micErr) {
+      console.error('Microphone permission denied:', micErr);
+      setMicStatus(
+        'denied',
+        micErr.name === 'NotAllowedError'
+          ? 'Mic blocked. Click the camera/mic icon in the URL bar → Allow → reload.'
+          : `Mic error: ${micErr.message || micErr.name}`,
+      );
+      connectBtn.textContent = 'Connect';
+      connectBtn.disabled = false;
+      return;
+    }
+
     const resp = await fetch(
       `/api/token?room=${ROOM_NAME}&identity=${PARTICIPANT_IDENTITY}`,
     );
@@ -63,8 +90,21 @@ connectBtn.addEventListener('click', async () => {
 
     try {
       await room.localParticipant.setMicrophoneEnabled(true);
+      setMicStatus('live', 'Mic live');
+      // Hook a VU meter to the published track so you can SEE if your voice
+      // is actually being captured. Solves the silent "mic on but no transcript"
+      // failure mode where the OS-level input device is wrong or muted.
+      attachAudioMeter().catch((e) =>
+        console.warn('VU meter attach failed:', e),
+      );
     } catch (micErr) {
-      console.warn('Microphone not available:', micErr);
+      console.error('setMicrophoneEnabled failed:', micErr);
+      setMicStatus('denied', `Failed to publish mic: ${micErr.message || micErr}`);
+      // Connection is up but mic isn't — disconnect to avoid a half-broken state.
+      await room.disconnect();
+      connectBtn.textContent = 'Connect';
+      connectBtn.disabled = false;
+      return;
     }
 
     isConnected = true;
@@ -80,11 +120,134 @@ connectBtn.addEventListener('click', async () => {
     setTimeout(refreshDebugSnapshot, 2000);
   } catch (err) {
     console.error('Connection failed:', err);
+    setMicStatus('error', `Connection failed: ${err.message || err}`);
     connectBtn.textContent = 'Connect';
     connectBtn.disabled = false;
     connectionStatusEl.textContent = 'Connection failed';
   }
 });
+
+/**
+ * Continuous VU meter on the published mic track. Lets you see whether your
+ * voice is actually reaching LiveKit — the single hardest failure to diagnose
+ * is "mic permission granted, track published, but the audio is silent."
+ */
+let _meterCleanup = null;
+async function attachAudioMeter() {
+  if (_meterCleanup) _meterCleanup();
+
+  const pubs = Array.from(room.localParticipant.audioTrackPublications.values());
+  if (pubs.length === 0) throw new Error('no audio track to meter');
+  const track = pubs[0].track;
+  const mediaTrack = track?.mediaStreamTrack;
+  if (!mediaTrack) throw new Error('no MediaStreamTrack on audio publication');
+
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const stream = new MediaStream([mediaTrack]);
+  const source = ctx.createMediaStreamSource(stream);
+  const analyser = ctx.createAnalyser();
+  analyser.fftSize = 512;
+  analyser.smoothingTimeConstant = 0.6;
+  source.connect(analyser);
+
+  // Inject the meter UI under the PTT button if not present
+  let meter = document.getElementById('mic-meter');
+  if (!meter) {
+    meter = document.createElement('div');
+    meter.id = 'mic-meter';
+    meter.innerHTML =
+      '<div class="meter-track"><div class="meter-fill"></div></div>' +
+      '<div class="meter-label">mic level</div>';
+    pttBtn.parentNode.insertBefore(meter, pttBtn.nextSibling);
+  }
+  const fill = meter.querySelector('.meter-fill');
+  const label = meter.querySelector('.meter-label');
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  let rafId;
+  let frameSilenceCount = 0;
+  const SILENCE_THRESHOLD = 0.003;
+  const SILENCE_FRAMES_BEFORE_HINT = 180; // ~3s of silence after PTT start
+  let lastHintAt = 0;
+
+  function tick() {
+    analyser.getByteTimeDomainData(data);
+    let sumSq = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sumSq += v * v;
+    }
+    const rms = Math.sqrt(sumSq / data.length);
+    // Compressed display so quiet speech still shows movement
+    const pct = Math.min(100, Math.pow(rms * 3, 0.6) * 100);
+    fill.style.width = pct + '%';
+    fill.classList.toggle('meter-fill--hot', rms > 0.05);
+    fill.classList.toggle('meter-fill--cold', rms < SILENCE_THRESHOLD);
+
+    if (isPttActive) {
+      if (rms < SILENCE_THRESHOLD) {
+        frameSilenceCount++;
+      } else {
+        frameSilenceCount = 0;
+      }
+      if (
+        frameSilenceCount > SILENCE_FRAMES_BEFORE_HINT &&
+        Date.now() - lastHintAt > 5000
+      ) {
+        label.textContent =
+          'mic level — silent. Check Windows mic device + speak closer';
+        label.classList.add('meter-label--warn');
+        lastHintAt = Date.now();
+      } else if (rms >= SILENCE_THRESHOLD) {
+        label.textContent = 'mic level';
+        label.classList.remove('meter-label--warn');
+      }
+    }
+
+    rafId = requestAnimationFrame(tick);
+  }
+  tick();
+
+  _meterCleanup = () => {
+    cancelAnimationFrame(rafId);
+    try {
+      source.disconnect();
+      ctx.close();
+    } catch {
+      // ignore — page may be unloading
+    }
+  };
+}
+
+/**
+ * Surface mic/connection state in a banner above the transcript so failures
+ * aren't buried in the console. State is one of:
+ *   requesting | live | denied | error | hidden
+ */
+function setMicStatus(state, message) {
+  let banner = document.getElementById('mic-status-banner');
+  if (state === 'hidden') {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'mic-status-banner';
+    transcriptPanel.parentNode.insertBefore(banner, transcriptPanel);
+  }
+  banner.className = `mic-status-banner mic-status-${state}`;
+  banner.textContent = message;
+  // "Live" state fades out after a moment — no need to keep the badge visible
+  // forever once mic is working.
+  if (state === 'live') {
+    setTimeout(() => {
+      if (banner && banner.classList.contains('mic-status-live')) {
+        banner.style.opacity = '0';
+        setTimeout(() => banner && banner.remove(), 600);
+      }
+    }, 1500);
+  }
+}
 
 debugRefreshBtn.addEventListener('click', refreshDebugSnapshot);
 
@@ -260,8 +423,13 @@ async function pttEnd() {
       method: 'ptt_end',
       payload: '',
     });
-    // Auto-refresh debug panel after each turn to show updated metrics
-    setTimeout(refreshDebugSnapshot, 500);
+    // Pronunciation results land ~1.2s after PTT_end (Azure round-trip). Poll
+    // at multiple intervals so the bubble gets annotated whenever the result
+    // arrives — short turns sometimes return in <500ms, long turns can take
+    // 2-3s. Multi-poll is cheap and idempotent.
+    for (const delay of [400, 1500, 3500, 6000]) {
+      setTimeout(refreshDebugSnapshot, delay);
+    }
   } catch (err) {
     console.error('RPC ptt_end failed:', err);
   }
@@ -315,6 +483,12 @@ async function refreshDebugSnapshot() {
 }
 
 function renderDebugPanel(data) {
+  // Difficulty controller (Phase 6)
+  renderControllerState(data.controllerState);
+
+  // Pronunciation pipeline (Phase 7)
+  renderPronunciation(data.pronunciation);
+
   // Metrics
   const durationSec = Math.floor(
     (Date.now() - new Date(data.sessionStartedAt).getTime()) / 1000,
@@ -352,6 +526,237 @@ function renderDebugPanel(data) {
 
   // System prompt
   debugPromptEl.textContent = data.systemPrompt;
+}
+
+function renderPronunciation(pron) {
+  if (!pron) {
+    debugPronunciationEl.textContent = 'Pipeline not initialized';
+    pronProviderBadgeEl.textContent = '';
+    return;
+  }
+
+  // Provider badge
+  pronProviderBadgeEl.textContent = pron.provider;
+  pronProviderBadgeEl.className =
+    'provider-badge ' +
+    (pron.provider === 'noop' ? 'provider-noop' : 'provider-active');
+
+  if (!pron.recent || pron.recent.length === 0) {
+    debugPronunciationEl.innerHTML =
+      pron.provider === 'noop'
+        ? '<div class="muted">No assessor configured. Set PRONUNCIATION_PROVIDER=azure (or speechace) to enable.</div>'
+        : '<div class="muted">No turns assessed yet — speak something to see scores.</div>';
+    return;
+  }
+
+  // Debug-panel summary view (compact, most-recent-first)
+  const items = [...pron.recent].reverse().map((a, idx) => {
+    const accuracyClass = scoreBucket(a.overall.accuracy);
+    const flagged = (a.words || []).filter(
+      (w) => w.score < 70 || w.error_type !== 'None',
+    );
+
+    const flaggedHtml =
+      flagged.length > 0
+        ? flagged
+            .map(
+              (w) =>
+                `<span class="pron-flag pron-flag-${scoreBucket(w.score)}" ` +
+                `title="${escapeHtml(w.error_type)}${w.phoneme_sub ? ` /${w.phoneme_sub.from}/→/${w.phoneme_sub.to}/` : ''}">` +
+                `${escapeHtml(w.word)} ${w.score}</span>`,
+            )
+            .join('')
+        : '<span class="muted">no flags</span>';
+
+    const prosodyHtml = a.prosody?.errors?.length
+      ? `<div class="pron-prosody">prosody: ${a.prosody.errors
+          .map((e) => escapeHtml(e.type))
+          .join(', ')}</div>`
+      : '';
+
+    const divergenceHtml = a.divergence
+      ? `<div class="pron-divergence" title="STT and Azure disagreed on what was said">heard: "${escapeHtml(a.recognized_text || '')}"</div>`
+      : '';
+
+    return (
+      `<div class="pron-turn ${idx === 0 ? 'pron-turn-latest' : ''}">` +
+      `<div class="pron-text">"${escapeHtml(a.reference_text)}"</div>` +
+      `<div class="pron-scores">` +
+      `<span class="pron-score score-${accuracyClass}">accuracy ${Math.round(a.overall.accuracy)}</span>` +
+      `<span class="pron-score">fluency ${Math.round(a.overall.fluency)}</span>` +
+      `<span class="muted">${a.latency_ms}ms</span>` +
+      `</div>` +
+      `<div class="pron-flagged">${flaggedHtml}</div>` +
+      divergenceHtml +
+      prosodyHtml +
+      `</div>`
+    );
+  });
+
+  debugPronunciationEl.innerHTML = items.join('');
+
+  // Annotate the actual transcript bubbles — what the user sees inline.
+  // Match assessments to bubbles by reference_text (latest-N pairing).
+  annotateLearnerBubbles(pron.recent);
+}
+
+/**
+ * Score-to-bucket mapping shared by the debug-panel pills and the inline
+ * transcript word tints. Five buckets so the gradient feels granular.
+ */
+function scoreBucket(score) {
+  if (score >= 85) return 'clean';
+  if (score >= 70) return 'mild';
+  if (score >= 55) return 'mid';
+  if (score >= 40) return 'rough';
+  return 'severe';
+}
+
+/**
+ * Walk recent learner transcript bubbles and overlay per-word annotations
+ * from matching assessments. Match by reference_text trimmed of punctuation.
+ *
+ * Idempotent — call as many times as you like; each call rebuilds the bubble
+ * contents from the stored raw text + latest assessment.
+ */
+function annotateLearnerBubbles(assessments) {
+  if (!assessments || assessments.length === 0) return;
+
+  const bubbles = Array.from(
+    transcriptPanel.querySelectorAll('.transcript-entry.learner'),
+  );
+  if (bubbles.length === 0) return;
+
+  const norm = (s) => (s || '').replace(/[.,!?;:¿¡]/g, '').trim().toLowerCase();
+
+  // Index assessments by normalized reference for O(1) match
+  const assessmentByRef = new Map();
+  for (const a of assessments) {
+    assessmentByRef.set(norm(a.reference_text), a);
+  }
+
+  for (const bubble of bubbles) {
+    const textEl = bubble.querySelector('.text');
+    if (!textEl) continue;
+
+    // Stash original text on first encounter so we can re-render idempotently.
+    if (!bubble.dataset.rawText) {
+      bubble.dataset.rawText = textEl.textContent;
+    }
+    const raw = bubble.dataset.rawText;
+    const assessment = assessmentByRef.get(norm(raw));
+    if (!assessment) continue;
+
+    textEl.innerHTML = renderAnnotatedText(raw, assessment);
+  }
+}
+
+/**
+ * Tokenize the raw transcript, match each token to a word in the assessment,
+ * and emit a span tree with gradient-tint classes + inline bracket annotations.
+ *
+ * Whitespace and punctuation are preserved as plain text nodes between word
+ * spans so the bubble reads naturally.
+ */
+function renderAnnotatedText(text, assessment) {
+  // Split keeping delimiters so we preserve spacing/punctuation exactly
+  const tokens = text.split(/(\s+|[.,!?;:¿¡]+)/);
+  const wordsByLower = new Map();
+  for (const w of assessment.words || []) {
+    wordsByLower.set(w.word.toLowerCase().replace(/[.,!?;:¿¡]/g, ''), w);
+  }
+
+  const parts = tokens.map((tok) => {
+    const cleanLower = tok.toLowerCase().replace(/[.,!?;:¿¡]/g, '');
+    const match = wordsByLower.get(cleanLower);
+    if (!match || !cleanLower) return escapeHtml(tok);
+
+    const bucket = scoreBucket(match.score);
+    const isStretch = match.is_stretch;
+    const isErr = match.error_type && match.error_type !== 'None';
+    const isMispron = bucket === 'mid' || bucket === 'rough' || bucket === 'severe' || isErr;
+    const classNames = [
+      'word',
+      isStretch ? 'word--stretch' : `word--${bucket}`,
+      isErr ? 'word--error' : '',
+    ]
+      .filter(Boolean)
+      .join(' ');
+
+    // Inline bracket: only render when there's something useful to say.
+    const bracketParts = [];
+    if (isMispron) bracketParts.push(String(match.score));
+    if (match.phoneme_sub) {
+      bracketParts.push(`/${match.phoneme_sub.from}/→/${match.phoneme_sub.to}/`);
+    }
+    if (isStretch) bracketParts.push('stretch');
+    const bracket =
+      bracketParts.length > 0
+        ? `<span class="word-annot">[${bracketParts.join(' ')}]</span>`
+        : '';
+
+    const titleBits = [
+      `score ${match.score}`,
+      match.error_type !== 'None' ? match.error_type : null,
+      match.phoneme_sub ? `/${match.phoneme_sub.from}/ → /${match.phoneme_sub.to}/` : null,
+      isStretch ? 'above your usual level — nice' : null,
+    ].filter(Boolean);
+    const titleAttr = titleBits.length
+      ? ` title="${escapeHtml(titleBits.join(' · '))}"`
+      : '';
+
+    return `<span class="${classNames}"${titleAttr}>${escapeHtml(tok)}</span>${bracket}`;
+  });
+
+  let html = parts.join('');
+
+  // Divergence: STT and Azure disagreed on what was said. Annotate the whole
+  // bubble at the tail rather than per-word, since we can't easily map which
+  // specific word(s) caused the divergence.
+  if (assessment.divergence && assessment.recognized_text) {
+    html +=
+      `<span class="bubble-annot bubble-annot--divergence" ` +
+      `title="The pronunciation engine heard something different from speech-to-text">` +
+      `[heard: ${escapeHtml(assessment.recognized_text)}]</span>`;
+  }
+  if (assessment.prosody?.errors?.length) {
+    html +=
+      `<span class="bubble-annot bubble-annot--prosody">` +
+      `[prosody: ${escapeHtml(assessment.prosody.errors.map((e) => e.type).join(', '))}]</span>`;
+  }
+
+  return html;
+}
+
+function renderControllerState(state) {
+  if (!state) {
+    debugControllerEl.textContent = 'Controller not initialized';
+    return;
+  }
+
+  const ratioPct = Math.round(state.current_ratio_target * 100);
+  const edgeBadgeClass = `edge-badge edge-${state.edge_state}`;
+  const edgeLabel =
+    state.edge_state === 'unknown'
+      ? 'awaiting first edge check'
+      : state.edge_state;
+
+  debugControllerEl.innerHTML =
+    `<div class="ratio-row">` +
+    `<div class="ratio-bar"><div class="ratio-fill" style="width: ${ratioPct}%"></div></div>` +
+    `<div class="ratio-label">${ratioPct}% English / ${100 - ratioPct}% Spanish</div>` +
+    `</div>` +
+    `<div class="edge-row"><span class="${edgeBadgeClass}">${escapeHtml(edgeLabel)}</span>` +
+    (state.last_edge_check_turn > 0
+      ? ` <span class="muted">(last check: turn ${state.last_edge_check_turn})</span>`
+      : '') +
+    `</div>` +
+    (state.last_evaluated_turn > 0
+      ? `<div class="controller-reason"><strong>Last turn read:</strong> ${escapeHtml(state.last_turn_reason)}</div>`
+      : '') +
+    (state.edge_state !== 'unknown'
+      ? `<div class="controller-reason"><strong>Directive:</strong> ${escapeHtml(state.last_edge_reason)}</div>`
+      : '');
 }
 
 function renderCompactionResult(data) {

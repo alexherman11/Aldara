@@ -14,6 +14,7 @@ The user message contains four XML-tagged sections:
 - `<existing_tutor_core>` — The tutor's current teaching strategy as JSON. This adapts to the specific learner.
 - `<session_transcript>` — The full conversation. Lines are prefixed with `[learner]` or `[tutor]`.
 - `<session_metrics>` — Turn count and session duration.
+- `<live_controller_state>` (optional) — A summary from the in-session difficulty controller showing the final bilingual ratio target it converged on, the final edge state (`coasting` / `edge` / `overwhelmed` / `unknown`), the most recent edge directive, and the most recent per-turn read. Treat this as the highest-fidelity signal for `tutor_core.bilingual_ratio_target` since it integrates per-turn evidence the transcript may not make obvious.
 
 ---
 
@@ -92,7 +93,9 @@ Specific instructions about which vocabulary items to review next session vs. in
 - `preferred_conversation_style`: How this learner likes to learn (e.g., "prefers learning through stories", "likes direct vocabulary drills", "engages best with real-world scenarios").
 
 ### bilingual_ratio_target
-Adjust up (more Spanish) if the learner is ready, or down (more English) if they're struggling. Maximum change: 0.05 per session. A1 learners should stay at 0.7-0.9 English.
+If `<live_controller_state>` is present, **strongly prefer its `Final bilingual ratio target` value** — that number reflects per-turn evidence integrated across the whole session, which is more reliable than any after-the-fact transcript reading. Only override the controller's value if the transcript shows clear evidence the controller overshot (e.g., the learner was successful at 50% Spanish for the last few turns but the controller has them at 80% English). Cap session-over-session change at 0.10 even when overriding.
+
+If `<live_controller_state>` is absent (older sessions), adjust up (more Spanish) if the learner is ready, or down (more English) if they're struggling, max 0.05 per session. A1 learners should stay at 0.7-0.9 English.
 
 ### endpointing_ms
 Do NOT change this value.

@@ -1,0 +1,775 @@
+{
+  "learnerId": "4b79f0b1-7dc7-4cc9-8ad7-0b261fc7f583",
+  "sessions": [
+    {
+      "label": "Session A — Mexico City + dogs + work",
+      "sessionId": "2519c50d-ac73-42b4-b3e1-d9c5363f5592",
+      "turnCount": 20,
+      "preCores": {
+        "learner": {
+          "grammar": {
+            "emerging": [],
+            "frontier": "present tense",
+            "mastered": [],
+            "breakthroughs": []
+          },
+          "version": 0,
+          "vocabulary": {
+            "gaps": [],
+            "active_count": 0,
+            "comfort_zones": [],
+            "passive_count": 0
+          },
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.8,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0
+          },
+          "pronunciation": {
+            "trajectories": {},
+            "overall_score": 0,
+            "l1_transfer_patterns": []
+          },
+          "learning_profile": {
+            "interests": [],
+            "strengths": [],
+            "endpointing_ms": 6000,
+            "emotional_baseline": "unknown — first session",
+            "frustration_triggers": [],
+            "correction_preference": "praise-first, end-of-turn"
+          },
+          "session_trajectory": "New learner. No sessions yet."
+        },
+        "tutor": {
+          "pacing": {
+            "avoid": "Past tenses, subjunctive — too early",
+            "current_push": "Basic greetings, self-introduction, interests",
+            "next_horizon": "Present tense regular verbs"
+          },
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "version": 0,
+          "endpointing_ms": 6000,
+          "fsrs_integration": "Introduce new vocabulary naturally, no review items yet",
+          "teaching_narrative": "New learner — probe for interests, establish rapport, assess baseline level. Use heavy English scaffolding with simple Spanish greetings and common phrases. Celebrate every attempt.",
+          "correction_strategy": {
+            "grammar": "Do not correct yet — let them produce freely",
+            "vocabulary": "Introduce 3-5 new words per session in context",
+            "pronunciation": "Note patterns silently, no feedback yet"
+          },
+          "engagement_insights": {
+            "low_engagement_topics": [],
+            "high_engagement_topics": [],
+            "preferred_conversation_style": "unknown"
+          },
+          "bilingual_ratio_target": 0.8
+        }
+      },
+      "postCores": {
+        "learner": {
+          "version": 1,
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.85,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0
+          },
+          "vocabulary": {
+            "active_count": 12,
+            "passive_count": 8,
+            "comfort_zones": [
+              "food",
+              "family",
+              "pets",
+              "basic_expressions"
+            ],
+            "gaps": [
+              "cooking_verbs",
+              "travel_vocabulary",
+              "technology_vocabulary"
+            ]
+          },
+          "pronunciation": {
+            "overall_score": 0,
+            "trajectories": {},
+            "l1_transfer_patterns": []
+          },
+          "grammar": {
+            "frontier": "present tense regular verbs, me gusta / me encanta agreement",
+            "mastered": [],
+            "emerging": [
+              "me encanta/encantan number agreement",
+              "basic noun-adjective agreement"
+            ],
+            "breakthroughs": [
+              "Used 'me encantan los perros' with correct plural agreement after one correction",
+              "Produced 'sí me gusta aprender' unprompted and correctly",
+              "Used 'mi cuñado es chistoso' in a sentence independently"
+            ]
+          },
+          "learning_profile": {
+            "interests": [
+              "Mexican food",
+              "dogs",
+              "cooking",
+              "family",
+              "travel to Mexico City",
+              "technology/software engineering",
+              "learning itself"
+            ],
+            "correction_preference": "praise-first, end-of-turn",
+            "emotional_baseline": "enthusiastic, warm, and highly motivated — connection to wife's Mexican family is a strong personal driver",
+            "frustration_triggers": [],
+            "strengths": [
+              "quick uptake of vocabulary in context",
+              "excellent motivation and personal connection to target culture",
+              "willing to attempt Spanish unprompted",
+              "picks up corrections and applies them immediately"
+            ],
+            "endpointing_ms": 6000
+          },
+          "session_trajectory": "Excellent first session. Learner is A1 but highly motivated via family connection to Mexico City. Showed strong uptake: correctly used me encantan, cuñado, chistoso, sí me gusta unprompted. Topics of food, dogs, family, and cooking all produced high engagement. Next session should introduce cooking recipe vocabulary (pasta was mentioned) and reinforce me gusta/me encanta agreement with plural nouns."
+        },
+        "tutor": {
+          "version": 1,
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "teaching_narrative": "Learner has strong personal motivation — wife's family is from Mexico City. He loves food, has two dogs (Luna and Coco), and is a software engineer who enjoys learning. He picked up me encanta/encantan, chistoso, and cuñado quickly. Next session: deliver on the pasta recipe promise. Use food and family as primary hooks. Begin building present tense verb conjugations through cooking verbs (cocinar, mezclar, añadir).",
+          "correction_strategy": {
+            "grammar": "Gentle recast with brief explanation — he responded very well to the encantan plural correction and immediately self-applied it",
+            "vocabulary": "Introduce 4-6 words per session embedded in thematic context; cooking and family themes are landing well",
+            "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context (difícil was modeled)"
+          },
+          "pacing": {
+            "current_push": "Present tense regular verbs through cooking context; me gusta/me encanta agreement with singular and plural nouns; basic adjective agreement",
+            "next_horizon": "Travel phrases for Mexico City visit; 'quiero' + infinitive constructions; family vocabulary expansion",
+            "avoid": "Past tenses, subjunctive, ser vs. estar distinction (too early)"
+          },
+          "fsrs_integration": "Review: me encanta, cuñado, chistoso, sabor, difícil — all introduced this session. Next session introduce: cocinar, mezclar, la receta, los ingredientes, fácil, delicioso as the pasta recipe lesson. Also surface: familia política, grande, pequeño.",
+          "engagement_insights": {
+            "high_engagement_topics": [
+              "Mexican food (mole, tacos, pasta)",
+              "dogs (Luna and Coco)",
+              "wife's family / Mexico City connection",
+              "humor about cuñado"
+            ],
+            "low_engagement_topics": [],
+            "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about"
+          },
+          "bilingual_ratio_target": 0.8,
+          "endpointing_ms": 6000
+        }
+      },
+      "fsrsCreated": 14,
+      "fsrsRated": 0,
+      "durationMs": 30383,
+      "promptCharsBefore": 5289,
+      "promptCharsAfter": 7032,
+      "notes": "First session completed successfully. Learner is highly motivated A1 with strong family/cultural ties to Mexico; showed immediate uptake of me encanta/encantan agreement, cuñado, chistoso, and me gusta. FSRS seeded with 14 new cards across food, family, and core expression vocabulary.",
+      "fsrsDueCount": 14
+    },
+    {
+      "label": "Session B — pasta cooking + Coco",
+      "sessionId": "2a48b46b-3573-4cbf-ab74-716ace7f2bf3",
+      "turnCount": 15,
+      "preCores": {
+        "learner": {
+          "grammar": {
+            "emerging": [
+              "me encanta/encantan number agreement",
+              "basic noun-adjective agreement"
+            ],
+            "frontier": "present tense regular verbs, me gusta / me encanta agreement",
+            "mastered": [],
+            "breakthroughs": [
+              "Used 'me encantan los perros' with correct plural agreement after one correction",
+              "Produced 'sí me gusta aprender' unprompted and correctly",
+              "Used 'mi cuñado es chistoso' in a sentence independently"
+            ]
+          },
+          "version": 1,
+          "vocabulary": {
+            "gaps": [
+              "cooking_verbs",
+              "travel_vocabulary",
+              "technology_vocabulary"
+            ],
+            "active_count": 12,
+            "comfort_zones": [
+              "food",
+              "family",
+              "pets",
+              "basic_expressions"
+            ],
+            "passive_count": 8
+          },
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.85,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0
+          },
+          "pronunciation": {
+            "trajectories": {},
+            "overall_score": 0,
+            "l1_transfer_patterns": []
+          },
+          "learning_profile": {
+            "interests": [
+              "Mexican food",
+              "dogs",
+              "cooking",
+              "family",
+              "travel to Mexico City",
+              "technology/software engineering",
+              "learning itself"
+            ],
+            "strengths": [
+              "quick uptake of vocabulary in context",
+              "excellent motivation and personal connection to target culture",
+              "willing to attempt Spanish unprompted",
+              "picks up corrections and applies them immediately"
+            ],
+            "endpointing_ms": 6000,
+            "emotional_baseline": "enthusiastic, warm, and highly motivated — connection to wife's Mexican family is a strong personal driver",
+            "frustration_triggers": [],
+            "correction_preference": "praise-first, end-of-turn"
+          },
+          "session_trajectory": "Excellent first session. Learner is A1 but highly motivated via family connection to Mexico City. Showed strong uptake: correctly used me encantan, cuñado, chistoso, sí me gusta unprompted. Topics of food, dogs, family, and cooking all produced high engagement. Next session should introduce cooking recipe vocabulary (pasta was mentioned) and reinforce me gusta/me encanta agreement with plural nouns."
+        },
+        "tutor": {
+          "pacing": {
+            "avoid": "Past tenses, subjunctive, ser vs. estar distinction (too early)",
+            "current_push": "Present tense regular verbs through cooking context; me gusta/me encanta agreement with singular and plural nouns; basic adjective agreement",
+            "next_horizon": "Travel phrases for Mexico City visit; 'quiero' + infinitive constructions; family vocabulary expansion"
+          },
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "version": 1,
+          "endpointing_ms": 6000,
+          "fsrs_integration": "Review: me encanta, cuñado, chistoso, sabor, difícil — all introduced this session. Next session introduce: cocinar, mezclar, la receta, los ingredientes, fácil, delicioso as the pasta recipe lesson. Also surface: familia política, grande, pequeño.",
+          "teaching_narrative": "Learner has strong personal motivation — wife's family is from Mexico City. He loves food, has two dogs (Luna and Coco), and is a software engineer who enjoys learning. He picked up me encanta/encantan, chistoso, and cuñado quickly. Next session: deliver on the pasta recipe promise. Use food and family as primary hooks. Begin building present tense verb conjugations through cooking verbs (cocinar, mezclar, añadir).",
+          "correction_strategy": {
+            "grammar": "Gentle recast with brief explanation — he responded very well to the encantan plural correction and immediately self-applied it",
+            "vocabulary": "Introduce 4-6 words per session embedded in thematic context; cooking and family themes are landing well",
+            "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context (difícil was modeled)"
+          },
+          "engagement_insights": {
+            "low_engagement_topics": [],
+            "high_engagement_topics": [
+              "Mexican food (mole, tacos, pasta)",
+              "dogs (Luna and Coco)",
+              "wife's family / Mexico City connection",
+              "humor about cuñado"
+            ],
+            "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about"
+          },
+          "bilingual_ratio_target": 0.8
+        }
+      },
+      "postCores": {
+        "learner": {
+          "version": 2,
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.82,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0.1
+          },
+          "vocabulary": {
+            "active_count": 20,
+            "passive_count": 12,
+            "comfort_zones": [
+              "food",
+              "family",
+              "pets",
+              "basic_expressions",
+              "cooking_ingredients"
+            ],
+            "gaps": [
+              "travel_vocabulary",
+              "technology_vocabulary",
+              "indirect_object_pronouns",
+              "emotional_expressions"
+            ]
+          },
+          "pronunciation": {
+            "overall_score": 0,
+            "trajectories": {},
+            "l1_transfer_patterns": []
+          },
+          "grammar": {
+            "mastered": [],
+            "emerging": [
+              "me encanta/encantan number agreement",
+              "basic noun-adjective agreement",
+              "verb-subject inversion (dropping pronoun in Spanish)",
+              "indirect object pronoun 'le' in fixed phrases"
+            ],
+            "frontier": "present tense regular verbs with dropped subject pronoun; 'creo que' + clause; connecting words (primero, después)",
+            "breakthroughs": [
+              "Self-corrected 'primero I cocino' to 'primero cocino' immediately after tutor prompt",
+              "Used 'y después cocino la pasta' unprompted as a second sentence",
+              "Produced 'creo que está bien' spontaneously and correctly",
+              "Remembered 'ladra' independently from prior self-study and used it in conversation"
+            ]
+          },
+          "learning_profile": {
+            "interests": [
+              "Mexican food",
+              "dogs",
+              "cooking",
+              "family",
+              "travel to Mexico City",
+              "technology/software engineering",
+              "learning itself",
+              "pasta recipes"
+            ],
+            "strengths": [
+              "quick uptake of vocabulary in context",
+              "excellent motivation and personal connection to target culture",
+              "willing to attempt Spanish unprompted",
+              "picks up corrections and applies them immediately",
+              "self-studies vocabulary between sessions (ladra)",
+              "strong chunk-learning instinct — wants to memorize whole phrases"
+            ],
+            "endpointing_ms": 6000,
+            "emotional_baseline": "enthusiastic, curious, and proactive — looking up words between sessions shows strong intrinsic motivation; ended session wanting more",
+            "frustration_triggers": [],
+            "correction_preference": "praise-first, end-of-turn"
+          },
+          "session_trajectory": "Strong second session built around the promised pasta recipe. Learner self-corrected dropped-pronoun immediately, produced multi-clause sentences (primero/después), and surprised the tutor with self-studied vocabulary (ladra). Ended session asking how to say 'I miss you,' signaling growing emotional investment. Next session: deliver 'te extraño' / 'te echo de menos,' reinforce le + verb chunks, and introduce a simple Mexico City travel phrase or two."
+        },
+        "tutor": {
+          "version": 2,
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "teaching_narrative": "Learner delivered on the pasta recipe session and exceeded expectations — he self-studied 'ladra' between sessions, self-corrected pronoun dropping, and asked for emotional vocabulary at the end. He craves practical, emotionally resonant language. Next session: open with 'te extraño' (he asked), weave in a short Mexico City scenario (planning a visit), and reinforce le + verb chunks through a dog/family story. Keep building first-person present tense through personal narratives.",
+          "correction_strategy": {
+            "grammar": "Gentle recast with brief explanation — dropped-pronoun correction landed perfectly; for indirect objects, model the full chunk and let repetition teach grammar implicitly",
+            "vocabulary": "Introduce 4-6 words per session embedded in thematic context; self-study behavior suggests he can handle slightly faster vocabulary exposure if tied to personal topics",
+            "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context"
+          },
+          "pacing": {
+            "current_push": "Emotional vocabulary (te extraño); le + verb object chunks; primero/después connecting words in multi-step narration; present tense first-person regular verbs",
+            "next_horizon": "Travel phrases for Mexico City visit; quiero + infinitive constructions; family vocabulary expansion; basic question formation (¿Dónde está...?)",
+            "avoid": "Past tenses, subjunctive, full indirect object pronoun paradigm (just model 'le' chunks for now), ser vs. estar distinction"
+          },
+          "fsrs_integration": "Review from session 2: cocinar, tomate, cebolla, ajo, queso, salsa de tomate, ladra/ladrar, cartero, suena, creo que, primero, después — rate based on recall. Review from session 1: me encanta, cuñado, chistoso, sabor, difícil. Next session introduce: te extraño, voy a visitar, la ciudad, el vuelo, quiero ir, and reinforce le ladra al cartero as a fixed chunk.",
+          "engagement_insights": {
+            "high_engagement_topics": [
+              "pasta recipe and cooking",
+              "Coco barking at the mailman",
+              "connecting words (primero, después)",
+              "emotional phrases (wanted 'I miss you' unprompted)",
+              "wife's family / Mexico City connection"
+            ],
+            "low_engagement_topics": [],
+            "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about; strong chunk-learner who self-studies between sessions"
+          },
+          "bilingual_ratio_target": 0.8,
+          "endpointing_ms": 6000
+        }
+      },
+      "fsrsCreated": 12,
+      "fsrsRated": 3,
+      "durationMs": 32613,
+      "promptCharsBefore": 7032,
+      "promptCharsAfter": 7222,
+      "notes": "Session 2 confirmed strong trajectory: learner self-studied vocabulary between sessions, self-corrected grammar, and ended by asking for emotional vocabulary — all signals of accelerating engagement. Key additions: cooking vocabulary, le-verb chunks, and connecting words; bilingual ratio held at 0.80 per live controller.",
+      "fsrsDueCount": 15
+    },
+    {
+      "label": "Session C — travel planning",
+      "sessionId": "d74d0f12-1499-418b-b434-3683e08e0e32",
+      "turnCount": 10,
+      "preCores": {
+        "learner": {
+          "grammar": {
+            "emerging": [
+              "me encanta/encantan number agreement",
+              "basic noun-adjective agreement",
+              "verb-subject inversion (dropping pronoun in Spanish)",
+              "indirect object pronoun 'le' in fixed phrases"
+            ],
+            "frontier": "present tense regular verbs with dropped subject pronoun; 'creo que' + clause; connecting words (primero, después)",
+            "mastered": [],
+            "breakthroughs": [
+              "Self-corrected 'primero I cocino' to 'primero cocino' immediately after tutor prompt",
+              "Used 'y después cocino la pasta' unprompted as a second sentence",
+              "Produced 'creo que está bien' spontaneously and correctly",
+              "Remembered 'ladra' independently from prior self-study and used it in conversation"
+            ]
+          },
+          "version": 2,
+          "vocabulary": {
+            "gaps": [
+              "travel_vocabulary",
+              "technology_vocabulary",
+              "indirect_object_pronouns",
+              "emotional_expressions"
+            ],
+            "active_count": 20,
+            "comfort_zones": [
+              "food",
+              "family",
+              "pets",
+              "basic_expressions",
+              "cooking_ingredients"
+            ],
+            "passive_count": 12
+          },
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.82,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0.1
+          },
+          "pronunciation": {
+            "trajectories": {},
+            "overall_score": 0,
+            "l1_transfer_patterns": []
+          },
+          "learning_profile": {
+            "interests": [
+              "Mexican food",
+              "dogs",
+              "cooking",
+              "family",
+              "travel to Mexico City",
+              "technology/software engineering",
+              "learning itself",
+              "pasta recipes"
+            ],
+            "strengths": [
+              "quick uptake of vocabulary in context",
+              "excellent motivation and personal connection to target culture",
+              "willing to attempt Spanish unprompted",
+              "picks up corrections and applies them immediately",
+              "self-studies vocabulary between sessions (ladra)",
+              "strong chunk-learning instinct — wants to memorize whole phrases"
+            ],
+            "endpointing_ms": 6000,
+            "emotional_baseline": "enthusiastic, curious, and proactive — looking up words between sessions shows strong intrinsic motivation; ended session wanting more",
+            "frustration_triggers": [],
+            "correction_preference": "praise-first, end-of-turn"
+          },
+          "session_trajectory": "Strong second session built around the promised pasta recipe. Learner self-corrected dropped-pronoun immediately, produced multi-clause sentences (primero/después), and surprised the tutor with self-studied vocabulary (ladra). Ended session asking how to say 'I miss you,' signaling growing emotional investment. Next session: deliver 'te extraño' / 'te echo de menos,' reinforce le + verb chunks, and introduce a simple Mexico City travel phrase or two."
+        },
+        "tutor": {
+          "pacing": {
+            "avoid": "Past tenses, subjunctive, full indirect object pronoun paradigm (just model 'le' chunks for now), ser vs. estar distinction",
+            "current_push": "Emotional vocabulary (te extraño); le + verb object chunks; primero/después connecting words in multi-step narration; present tense first-person regular verbs",
+            "next_horizon": "Travel phrases for Mexico City visit; quiero + infinitive constructions; family vocabulary expansion; basic question formation (¿Dónde está...?)"
+          },
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "version": 2,
+          "endpointing_ms": 6000,
+          "fsrs_integration": "Review from session 2: cocinar, tomate, cebolla, ajo, queso, salsa de tomate, ladra/ladrar, cartero, suena, creo que, primero, después — rate based on recall. Review from session 1: me encanta, cuñado, chistoso, sabor, difícil. Next session introduce: te extraño, voy a visitar, la ciudad, el vuelo, quiero ir, and reinforce le ladra al cartero as a fixed chunk.",
+          "teaching_narrative": "Learner delivered on the pasta recipe session and exceeded expectations — he self-studied 'ladra' between sessions, self-corrected pronoun dropping, and asked for emotional vocabulary at the end. He craves practical, emotionally resonant language. Next session: open with 'te extraño' (he asked), weave in a short Mexico City scenario (planning a visit), and reinforce le + verb chunks through a dog/family story. Keep building first-person present tense through personal narratives.",
+          "correction_strategy": {
+            "grammar": "Gentle recast with brief explanation — dropped-pronoun correction landed perfectly; for indirect objects, model the full chunk and let repetition teach grammar implicitly",
+            "vocabulary": "Introduce 4-6 words per session embedded in thematic context; self-study behavior suggests he can handle slightly faster vocabulary exposure if tied to personal topics",
+            "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context"
+          },
+          "engagement_insights": {
+            "low_engagement_topics": [],
+            "high_engagement_topics": [
+              "pasta recipe and cooking",
+              "Coco barking at the mailman",
+              "connecting words (primero, después)",
+              "emotional phrases (wanted 'I miss you' unprompted)",
+              "wife's family / Mexico City connection"
+            ],
+            "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about; strong chunk-learner who self-studies between sessions"
+          },
+          "bilingual_ratio_target": 0.8
+        }
+      },
+      "postCores": {
+        "learner": {
+          "grammar": {
+            "emerging": [
+              "me encanta/encantan number agreement",
+              "basic noun-adjective agreement",
+              "verb-subject inversion (dropping pronoun in Spanish)",
+              "indirect object pronoun 'le' in fixed phrases",
+              "tomar vs. beber distinction (functional register awareness)"
+            ],
+            "frontier": "quiero/quisiera + infinitive or noun; ¿dónde está...? question formation; por la mañana and time-of-day phrases; present tense first-person regular verbs with dropped subject pronoun",
+            "mastered": [],
+            "breakthroughs": [
+              "Used 'me encantan los cafés' correctly with plural agreement unprompted",
+              "Produced 'con mi cuñado' correctly from prior session vocabulary",
+              "Repeated 'quisiera tacos al pastor por favor' accurately on first attempt"
+            ]
+          },
+          "version": 3,
+          "vocabulary": {
+            "gaps": [
+              "travel_vocabulary (deeper — directions, transport, hotel)",
+              "technology_vocabulary",
+              "indirect_object_pronouns",
+              "emotional_expressions",
+              "polite_register_phrases"
+            ],
+            "active_count": 26,
+            "comfort_zones": [
+              "food",
+              "family",
+              "pets",
+              "basic_expressions",
+              "cooking_ingredients",
+              "cafe_morning_routine",
+              "basic_travel_phrases"
+            ],
+            "passive_count": 16
+          },
+          "proficiency": {
+            "cefr_level": "A1",
+            "bilingual_ratio": 0.8,
+            "speech_rate_wpm": 0,
+            "self_correction_rate": 0.1
+          },
+          "pronunciation": {
+            "trajectories": {},
+            "overall_score": 0,
+            "l1_transfer_patterns": []
+          },
+          "learning_profile": {
+            "interests": [
+              "Mexican food",
+              "dogs",
+              "cooking",
+              "family",
+              "travel to Mexico City",
+              "technology/software engineering",
+              "learning itself",
+              "pasta recipes",
+              "cafes and morning routine",
+              "Roma Norte neighborhood"
+            ],
+            "strengths": [
+              "quick uptake of vocabulary in context",
+              "excellent motivation and personal connection to target culture",
+              "willing to attempt Spanish unprompted",
+              "picks up corrections and applies them immediately",
+              "self-studies vocabulary between sessions",
+              "strong chunk-learning instinct — wants to memorize whole phrases",
+              "applies learned vocabulary in real life (used words while cooking)",
+              "good pragmatic instinct — chose simple '¿dónde está el baño?' over complex version"
+            ],
+            "endpointing_ms": 6000,
+            "emotional_baseline": "enthusiastic and motivated — reported using Spanish in real life with his wife, showing strong transfer to daily contexts; practical and goal-oriented with the Mexico City trip as a clear motivator",
+            "frustration_triggers": [],
+            "correction_preference": "praise-first, end-of-turn"
+          },
+          "session_trajectory": "Third session introduced travel vocabulary ahead of a Mexico City trip in two months. Learner produced correct plural agreement ('me encantan') unprompted and successfully repeated polite ordering phrase ('quisiera'). Real-life vocabulary use confirmed (used cooking words with wife). Next session: expand travel phrases (directions, metro, ordering drinks), deliver 'te extraño' from prior promise, and reinforce quisiera + noun constructions."
+        },
+        "tutor": {
+          "pacing": {
+            "avoid": "Past tenses, subjunctive, full indirect object pronoun paradigm, ser vs. estar distinction, complex polite forms like '¿Me podría decir...?' (introduced passively but not for production yet)",
+            "current_push": "quisiera + noun/infinitive for ordering; ¿dónde está...? for navigation; por la mañana and basic time-of-day expressions; te extraño (still owed from session 2); travel scenario vocabulary (metro, hotel, barrio)",
+            "next_horizon": "Giving and understanding directions; quiero ir a + place; numbers for prices and addresses; basic question formation beyond ¿dónde está?"
+          },
+          "persona": {
+            "name": "Sofía",
+            "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+            "personality": "Warm, curious, gently challenging. Mexican Spanish."
+          },
+          "version": 3,
+          "endpointing_ms": 6000,
+          "fsrs_integration": "Review from session 3: el baño, quisiera, tomar café, por la mañana, barrio, Roma Norte (passive). Rate session 2 items: cocinar (Easy — used in real life), cebolla/ajo (Good — mentioned naturally), cuñado (Easy — used unprompted). Introduce next session: te extraño, el metro, ¿cómo llego a...?, una mesa para dos, la cuenta por favor.",
+          "teaching_narrative": "Learner is building toward a real Mexico City trip in two months — this is the perfect motivational anchor. He used cooking words with his wife, confirming real-world transfer. Session 3 covered café/morning routine, ¿dónde está el baño?, and quisiera ordering. Next session: open with 'te extraño' (still owed), then build a restaurant scene and a simple metro/navigation scenario using his cuñado's Roma Norte apartment as the home base.",
+          "correction_strategy": {
+            "grammar": "Gentle recast with brief explanation — continue modeling full correct sentences after learner attempts; for register differences (quisiera vs. quiero), explain briefly and let learner choose the simpler form without pressure",
+            "vocabulary": "Introduce 4-6 words per session embedded in thematic context; real-life usage confirmed so continue tying vocabulary to personal scenarios; chunk-learning strength means full phrases work better than isolated words",
+            "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context"
+          },
+          "engagement_insights": {
+            "low_engagement_topics": [],
+            "high_engagement_topics": [
+              "pasta recipe and cooking",
+              "Coco barking at the mailman",
+              "connecting words (primero, después)",
+              "emotional phrases",
+              "wife's family / Mexico City connection",
+              "Roma Norte cafes and neighborhood",
+              "practical survival phrases (bathroom, ordering food)"
+            ],
+            "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about; strong chunk-learner who self-studies between sessions; pragmatic — gravitates toward the simpler, more useful form when given options"
+          },
+          "bilingual_ratio_target": 0.8
+        }
+      },
+      "fsrsCreated": 5,
+      "fsrsRated": 6,
+      "durationMs": 33410,
+      "promptCharsBefore": 7222,
+      "promptCharsAfter": 7220,
+      "notes": "Session 3 pivoted to Mexico City travel prep; learner produced 'me encantan los cafés' with correct plural agreement unprompted and successfully chunked 'quisiera tacos al pastor por favor.' Real-life vocabulary transfer confirmed (used cooking words with wife). 'Te extraño' remains undelivered and is carried forward as a priority for session 4.",
+      "fsrsDueCount": 11
+    }
+  ],
+  "continuity": {
+    "aToB": {
+      "passed": 8,
+      "failed": 0,
+      "details": [
+        "  A→B continuity: 8/8 signal words preserved",
+        "    longest signal words checked: conjugations, connection, unprompted, engagement, vocabulary, motivation, excellent, motivated",
+        "    found in next prompt:         conjugations, connection, unprompted, engagement, vocabulary, motivation, excellent, motivated"
+      ]
+    },
+    "bToC": {
+      "passed": 8,
+      "failed": 0,
+      "details": [
+        "  B→C continuity: 8/8 signal words preserved",
+        "    longest signal words checked: expectations, immediately, emotionally, vocabulary, investment, narratives, corrected, sentences",
+        "    found in next prompt:         expectations, immediately, emotionally, vocabulary, investment, narratives, corrected, sentences"
+      ]
+    }
+  },
+  "finalCores": {
+    "learner": {
+      "grammar": {
+        "emerging": [
+          "me encanta/encantan number agreement",
+          "basic noun-adjective agreement",
+          "verb-subject inversion (dropping pronoun in Spanish)",
+          "indirect object pronoun 'le' in fixed phrases",
+          "tomar vs. beber distinction (functional register awareness)"
+        ],
+        "frontier": "quiero/quisiera + infinitive or noun; ¿dónde está...? question formation; por la mañana and time-of-day phrases; present tense first-person regular verbs with dropped subject pronoun",
+        "mastered": [],
+        "breakthroughs": [
+          "Used 'me encantan los cafés' correctly with plural agreement unprompted",
+          "Produced 'con mi cuñado' correctly from prior session vocabulary",
+          "Repeated 'quisiera tacos al pastor por favor' accurately on first attempt"
+        ]
+      },
+      "version": 3,
+      "vocabulary": {
+        "gaps": [
+          "travel_vocabulary (deeper — directions, transport, hotel)",
+          "technology_vocabulary",
+          "indirect_object_pronouns",
+          "emotional_expressions",
+          "polite_register_phrases"
+        ],
+        "active_count": 26,
+        "comfort_zones": [
+          "food",
+          "family",
+          "pets",
+          "basic_expressions",
+          "cooking_ingredients",
+          "cafe_morning_routine",
+          "basic_travel_phrases"
+        ],
+        "passive_count": 16
+      },
+      "proficiency": {
+        "cefr_level": "A1",
+        "bilingual_ratio": 0.8,
+        "speech_rate_wpm": 0,
+        "self_correction_rate": 0.1
+      },
+      "pronunciation": {
+        "trajectories": {},
+        "overall_score": 0,
+        "l1_transfer_patterns": []
+      },
+      "learning_profile": {
+        "interests": [
+          "Mexican food",
+          "dogs",
+          "cooking",
+          "family",
+          "travel to Mexico City",
+          "technology/software engineering",
+          "learning itself",
+          "pasta recipes",
+          "cafes and morning routine",
+          "Roma Norte neighborhood"
+        ],
+        "strengths": [
+          "quick uptake of vocabulary in context",
+          "excellent motivation and personal connection to target culture",
+          "willing to attempt Spanish unprompted",
+          "picks up corrections and applies them immediately",
+          "self-studies vocabulary between sessions",
+          "strong chunk-learning instinct — wants to memorize whole phrases",
+          "applies learned vocabulary in real life (used words while cooking)",
+          "good pragmatic instinct — chose simple '¿dónde está el baño?' over complex version"
+        ],
+        "endpointing_ms": 6000,
+        "emotional_baseline": "enthusiastic and motivated — reported using Spanish in real life with his wife, showing strong transfer to daily contexts; practical and goal-oriented with the Mexico City trip as a clear motivator",
+        "frustration_triggers": [],
+        "correction_preference": "praise-first, end-of-turn"
+      },
+      "session_trajectory": "Third session introduced travel vocabulary ahead of a Mexico City trip in two months. Learner produced correct plural agreement ('me encantan') unprompted and successfully repeated polite ordering phrase ('quisiera'). Real-life vocabulary use confirmed (used cooking words with wife). Next session: expand travel phrases (directions, metro, ordering drinks), deliver 'te extraño' from prior promise, and reinforce quisiera + noun constructions."
+    },
+    "tutor": {
+      "pacing": {
+        "avoid": "Past tenses, subjunctive, full indirect object pronoun paradigm, ser vs. estar distinction, complex polite forms like '¿Me podría decir...?' (introduced passively but not for production yet)",
+        "current_push": "quisiera + noun/infinitive for ordering; ¿dónde está...? for navigation; por la mañana and basic time-of-day expressions; te extraño (still owed from session 2); travel scenario vocabulary (metro, hotel, barrio)",
+        "next_horizon": "Giving and understanding directions; quiero ir a + place; numbers for prices and addresses; basic question formation beyond ¿dónde está?"
+      },
+      "persona": {
+        "name": "Sofía",
+        "voice_id": "5c5ad5e7-1020-476b-8b91-fdcbe9cc313c",
+        "personality": "Warm, curious, gently challenging. Mexican Spanish."
+      },
+      "version": 3,
+      "endpointing_ms": 6000,
+      "fsrs_integration": "Review from session 3: el baño, quisiera, tomar café, por la mañana, barrio, Roma Norte (passive). Rate session 2 items: cocinar (Easy — used in real life), cebolla/ajo (Good — mentioned naturally), cuñado (Easy — used unprompted). Introduce next session: te extraño, el metro, ¿cómo llego a...?, una mesa para dos, la cuenta por favor.",
+      "teaching_narrative": "Learner is building toward a real Mexico City trip in two months — this is the perfect motivational anchor. He used cooking words with his wife, confirming real-world transfer. Session 3 covered café/morning routine, ¿dónde está el baño?, and quisiera ordering. Next session: open with 'te extraño' (still owed), then build a restaurant scene and a simple metro/navigation scenario using his cuñado's Roma Norte apartment as the home base.",
+      "correction_strategy": {
+        "grammar": "Gentle recast with brief explanation — continue modeling full correct sentences after learner attempts; for register differences (quisiera vs. quiero), explain briefly and let learner choose the simpler form without pressure",
+        "vocabulary": "Introduce 4-6 words per session embedded in thematic context; real-life usage confirmed so continue tying vocabulary to personal scenarios; chunk-learning strength means full phrases work better than isolated words",
+        "pronunciation": "Note patterns silently for now; mention accent marks in passing as natural spelling context"
+      },
+      "engagement_insights": {
+        "low_engagement_topics": [],
+        "high_engagement_topics": [
+          "pasta recipe and cooking",
+          "Coco barking at the mailman",
+          "connecting words (primero, después)",
+          "emotional phrases",
+          "wife's family / Mexico City connection",
+          "Roma Norte cafes and neighborhood",
+          "practical survival phrases (bathroom, ordering food)"
+        ],
+        "preferred_conversation_style": "Real-world personal scenarios with immediate practical payoff — learns best when vocabulary is tied to people and experiences he already cares about; strong chunk-learner who self-studies between sessions; pragmatic — gravitates toward the simpler, more useful form when given options"
+      },
+      "bilingual_ratio_target": 0.8
+    }
+  },
+  "timing": {
+    "total_compaction_ms": 96406,
+    "per_session_ms": [
+      30383,
+      32613,
+      33410
+    ]
+  }
+}

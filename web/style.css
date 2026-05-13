@@ -354,3 +354,398 @@ header h1 {
   font-size: 10px;
   margin-top: 2px;
 }
+
+/* ── Difficulty Controller (Phase 6) ─────────────────────── */
+
+#controller-section {
+  background: #141414;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+#debug-controller .ratio-row {
+  margin-bottom: 10px;
+}
+
+#debug-controller .ratio-bar {
+  height: 8px;
+  background: #1e3a5f;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  margin-bottom: 4px;
+}
+
+#debug-controller .ratio-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 400ms ease;
+}
+
+#debug-controller .ratio-label {
+  font-size: 11px;
+  color: #aaa;
+  font-family: monospace;
+}
+
+#debug-controller .edge-row {
+  margin-bottom: 8px;
+}
+
+.edge-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.edge-badge.edge-edge {
+  background: #14532d;
+  color: #86efac;
+}
+
+.edge-badge.edge-coasting {
+  background: #422006;
+  color: #fcd34d;
+}
+
+.edge-badge.edge-overwhelmed {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+.edge-badge.edge-unknown {
+  background: #1f2937;
+  color: #9ca3af;
+}
+
+#debug-controller .controller-reason {
+  font-size: 11px;
+  color: #bbb;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+#debug-controller .controller-reason strong {
+  color: #ddd;
+}
+
+#debug-controller .muted {
+  color: #666;
+  font-size: 10px;
+}
+
+/* ── Pronunciation (Phase 7) ─────────────────────────────── */
+
+#pronunciation-section {
+  background: #141414;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+#pronunciation-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.provider-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: lowercase;
+  letter-spacing: 0.3px;
+  font-family: monospace;
+}
+
+.provider-badge.provider-noop {
+  background: #1f2937;
+  color: #6b7280;
+}
+
+.provider-badge.provider-active {
+  background: #1e3a8a;
+  color: #93c5fd;
+}
+
+.pron-turn {
+  border-bottom: 1px solid #1f1f1f;
+  padding: 8px 0;
+}
+
+.pron-turn:last-child {
+  border-bottom: none;
+}
+
+.pron-turn-latest {
+  background: rgba(59, 130, 246, 0.06);
+  margin: 0 -6px;
+  padding: 8px 6px;
+  border-radius: 4px;
+}
+
+.pron-text {
+  font-size: 11px;
+  color: #ddd;
+  font-style: italic;
+  margin-bottom: 4px;
+}
+
+.pron-scores {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-family: monospace;
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+
+.pron-score {
+  background: #1f2937;
+  color: #d1d5db;
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.pron-score.score-good {
+  background: #14532d;
+  color: #86efac;
+}
+
+.pron-score.score-mid {
+  background: #422006;
+  color: #fcd34d;
+}
+
+.pron-score.score-low {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+.pron-flagged {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-family: monospace;
+  font-size: 10px;
+}
+
+.pron-flag {
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: help;
+}
+
+.pron-flag-low {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+.pron-flag-mid {
+  background: #422006;
+  color: #fcd34d;
+}
+
+.pron-prosody {
+  font-family: monospace;
+  font-size: 10px;
+  color: #fcd34d;
+  margin-top: 4px;
+}
+
+#debug-pronunciation .muted {
+  color: #666;
+  font-size: 11px;
+}
+
+/* ── Mic VU meter ───────────────────────────────────────────────── */
+
+#mic-meter {
+  margin: 8px auto 0 auto;
+  max-width: 220px;
+  text-align: center;
+}
+
+#mic-meter .meter-track {
+  width: 100%;
+  height: 6px;
+  background: #1f2937;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+#mic-meter .meter-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #4ade80, #facc15 70%, #ef4444);
+  transition: width 60ms linear;
+}
+
+#mic-meter .meter-fill--cold {
+  background: #444;
+}
+
+#mic-meter .meter-fill--hot {
+  background: #ef4444;
+}
+
+#mic-meter .meter-label {
+  font-size: 10px;
+  color: #888;
+  margin-top: 4px;
+}
+
+#mic-meter .meter-label--warn {
+  color: #fca5a5;
+}
+
+/* ── Mic/connection status banner ───────────────────────────────── */
+
+.mic-status-banner {
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 1.4;
+  border-bottom: 1px solid #222;
+  transition: opacity 600ms ease;
+}
+
+.mic-status-banner.mic-status-requesting {
+  background: #1e293b;
+  color: #93c5fd;
+}
+
+.mic-status-banner.mic-status-live {
+  background: #0a2a0a;
+  color: #4ade80;
+}
+
+.mic-status-banner.mic-status-denied,
+.mic-status-banner.mic-status-error {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+/* ── Pronunciation gradient buckets (debug panel pills) ─────────── */
+
+.pron-score.score-clean,
+.pron-flag.pron-flag-clean {
+  background: #14532d;
+  color: #86efac;
+}
+
+.pron-score.score-mild,
+.pron-flag.pron-flag-mild {
+  background: #3f3105;
+  color: #fde68a;
+}
+
+.pron-score.score-mid,
+.pron-flag.pron-flag-mid {
+  background: #422006;
+  color: #fcd34d;
+}
+
+.pron-score.score-rough,
+.pron-flag.pron-flag-rough {
+  background: #4a1a06;
+  color: #fb923c;
+}
+
+.pron-score.score-severe,
+.pron-flag.pron-flag-severe {
+  background: #450a0a;
+  color: #fca5a5;
+}
+
+.pron-divergence {
+  font-family: monospace;
+  font-size: 10px;
+  color: #fbbf24;
+  margin-top: 4px;
+  border-left: 2px solid #fbbf24;
+  padding-left: 6px;
+}
+
+/* ── Inline transcript word annotations ─────────────────────────── */
+
+/* Subtle background tint per score bucket. Word stays readable, color is
+   peripheral. Hover deepens the tint to invite inspection of the tooltip. */
+.transcript-entry.learner .word {
+  border-radius: 3px;
+  padding: 0 1px;
+  transition: background-color 120ms ease;
+  cursor: help;
+}
+
+.transcript-entry.learner .word--clean {
+  /* no tint — kept reading natural */
+}
+
+.transcript-entry.learner .word--mild {
+  background: rgba(253, 224, 71, 0.10);
+  box-shadow: inset 0 -1px 0 rgba(253, 224, 71, 0.30);
+}
+
+.transcript-entry.learner .word--mid {
+  background: rgba(252, 211, 77, 0.15);
+  box-shadow: inset 0 -1px 0 rgba(252, 211, 77, 0.45);
+}
+
+.transcript-entry.learner .word--rough {
+  background: rgba(251, 146, 60, 0.18);
+  box-shadow: inset 0 -1px 0 rgba(251, 146, 60, 0.55);
+}
+
+.transcript-entry.learner .word--severe {
+  background: rgba(239, 68, 68, 0.22);
+  box-shadow: inset 0 -1px 0 rgba(239, 68, 68, 0.65);
+}
+
+.transcript-entry.learner .word--stretch {
+  background: rgba(74, 222, 128, 0.16);
+  box-shadow: inset 0 -1px 0 rgba(74, 222, 128, 0.50);
+}
+
+.transcript-entry.learner .word--error {
+  text-decoration: underline dashed rgba(251, 146, 60, 0.5);
+  text-underline-offset: 2px;
+}
+
+.transcript-entry.learner .word:hover {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+/* Inline bracket annotation right after the annotated word. Smaller, dimmer,
+   monospaced — meant to be skimmable, not the focal point of the line. */
+.transcript-entry.learner .word-annot {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.78em;
+  opacity: 0.62;
+  margin-left: 2px;
+  color: inherit;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+/* Tail annotations on the whole bubble (divergence, prosody) appear on their
+   own line just under the transcript, in dimmer text. */
+.transcript-entry.learner .bubble-annot {
+  display: block;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.78em;
+  opacity: 0.62;
+  margin-top: 4px;
+}
+
+.transcript-entry.learner .bubble-annot--divergence {
+  color: #fde68a;
+}
+
+.transcript-entry.learner .bubble-annot--prosody {
+  color: #fcd34d;
+}

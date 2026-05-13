@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pkill -f \"tsx src/token-server\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)"
+    ]
+  }
+}
