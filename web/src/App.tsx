@@ -7,7 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import NotFound from '@/pages/not-found';
 
 import Signup from '@/pages/Signup';
-import Assessment from '@/pages/Assessment';
+import Placement from '@/pages/Placement';
 import DailyGoal from '@/pages/DailyGoal';
 import Home from '@/pages/Home';
 import Session from '@/pages/Session';
@@ -43,12 +43,16 @@ function RouteGuard() {
       const stored = readStoredLearner();
       if (!stored) {
         setLocation('/signup');
-      } else if (!stored.onboarded) {
-        // Mid-onboarding — pick up where they left off. Anything past signup
-        // counts as "needs to finish setting up daily goal."
+      } else if (stored.onboarded) {
+        // Fully onboarded — also covers legacy learners stored before the
+        // placement step existed (no `placed` field, but onboarded === true).
+        setLocation('/home');
+      } else if (stored.placed) {
+        // Placed, but still needs to set a daily goal.
         setLocation('/daily-goal');
       } else {
-        setLocation('/home');
+        // Signed up but hasn't done the placement conversation yet.
+        setLocation('/placement');
       }
     }
   }, [location, setLocation]);
@@ -63,9 +67,9 @@ function RouteGuard() {
             <Signup />
           </PageWrapper>
         </Route>
-        <Route path="/assessment">
-          <PageWrapper path="/assessment">
-            <Assessment />
+        <Route path="/placement">
+          <PageWrapper path="/placement">
+            <Placement />
           </PageWrapper>
         </Route>
         <Route path="/daily-goal">

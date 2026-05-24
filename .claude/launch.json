@@ -7,6 +7,36 @@
       "runtimeArgs": ["tsx", "src/token-server.ts"],
       "port": 3000,
       "autoPort": false
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "web"],
+      "port": 5173,
+      "autoPort": false,
+      "env": { "BACKEND_PORT": "3001" }
+    },
+    {
+      "name": "agent",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["tsx", "src/agent.ts", "dev"],
+      "port": 0,
+      "autoPort": false
+    },
+    {
+      "name": "expo-backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m", "uvicorn", "app.main:app",
+        "--host", "127.0.0.1", "--port", "8000",
+        "--app-dir", "C:/Projects/Exposition/backend"
+      ],
+      "env": {
+        "PYTHONIOENCODING": "utf-8",
+        "GEMINI_API_KEY": "AIzaSyDkhLyrnynaySdDJR8t7Jl9OXjq2r9sfh8"
+      },
+      "port": 8000,
+      "autoPort": false
     }
   ]
 }

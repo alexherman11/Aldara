@@ -19,9 +19,13 @@ import {
   getDebugConfig,
   getLearnerState,
   readStoredLearner,
+  readTtsChoice,
+  writeTtsChoice,
+  TTS_OPTIONS,
   type DebugConfig,
   type LearnerState,
   type StoredLearner,
+  type TtsChoice,
 } from '@/lib/api';
 
 type Tab = 'profile' | 'progress' | 'debug';
@@ -239,6 +243,8 @@ function DebugTab({
         )}
       </Section>
 
+      <VoiceSelector />
+
       <Section title="LiveKit">
         {config ? (
           <KvList
@@ -379,6 +385,39 @@ function Placeholder({ children }: { children: React.ReactNode }) {
     <div className="rounded-xl border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
       {children}
     </div>
+  );
+}
+
+// Per-session voice/provider picker. The choice is persisted to localStorage
+// and read by Session.tsx when it requests a LiveKit token — so it applies to
+// the next session, not the one currently running (TTS is bound at the agent
+// session's start).
+function VoiceSelector() {
+  const [choice, setChoice] = useState<TtsChoice>(() => readTtsChoice());
+  return (
+    <Section title="Voice (TTS)">
+      <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2">
+        <select
+          value={choice}
+          onChange={(e) => {
+            const v = e.target.value as TtsChoice;
+            setChoice(v);
+            writeTtsChoice(v);
+          }}
+          className="w-full h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono text-foreground"
+          data-testid="select-tts"
+        >
+          {TTS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <p className="text-[11px] text-muted-foreground">
+          Applies to your next session — start a new conversation to hear it.
+        </p>
+      </div>
+    </Section>
   );
 }
 

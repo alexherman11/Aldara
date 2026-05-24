@@ -132,15 +132,61 @@ export function getDebugConfig(): Promise<DebugConfig> {
   return request<DebugConfig>('/api/debug/config');
 }
 
+// ── TTS voice selection ───────────────────────────────────────────────
+
+// Which voice/provider the agent renders Sofía with. Chosen in the Debug tab,
+// passed to /api/token, and stamped into LiveKit dispatch metadata so the
+// agent's createTts() picks it up. Takes effect on the next session started.
+export const TTS_OPTIONS = [
+  { value: 'cartesia', label: 'Cartesia — Sonic 3 (es)' },
+  { value: 'openai', label: 'OpenAI — gpt-4o-mini-tts' },
+  { value: 'google-flash', label: 'Google — Gemini 2.5 Flash TTS' },
+  { value: 'google-pro', label: 'Google — Gemini 2.5 Pro TTS' },
+  { value: 'inworld', label: 'Inworld — TTS-2' },
+] as const;
+
+export type TtsChoice = (typeof TTS_OPTIONS)[number]['value'];
+
+// Mirrors TTS_PROVIDER in .env so the dropdown's initial value matches what
+// the agent would use before any explicit pick.
+export const DEFAULT_TTS: TtsChoice = 'openai';
+
+const TTS_STORAGE_KEY = 'habla_tts';
+
+export function readTtsChoice(): TtsChoice {
+  try {
+    const raw = localStorage.getItem(TTS_STORAGE_KEY);
+    if (raw && TTS_OPTIONS.some((o) => o.value === raw)) {
+      return raw as TtsChoice;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_TTS;
+}
+
+export function writeTtsChoice(choice: TtsChoice): void {
+  try {
+    localStorage.setItem(TTS_STORAGE_KEY, choice);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getToken(opts: {
   learnerId: string;
   room?: string;
   identity?: string;
+  tts?: string;
+  /** 'placement' opens the post-signup calibration conversation. */
+  mode?: 'placement' | 'normal';
 }): Promise<TokenResponse> {
   const params = new URLSearchParams();
   params.set('learnerId', opts.learnerId);
   if (opts.room) params.set('room', opts.room);
   if (opts.identity) params.set('identity', opts.identity);
+  if (opts.tts) params.set('tts', opts.tts);
+  if (opts.mode === 'placement') params.set('mode', 'placement');
   return request<TokenResponse>(`/api/token?${params.toString()}`);
 }
 
@@ -157,8 +203,10 @@ export interface StoredLearner {
   id: string;
   profile: LearnerProfile;
   cefr_level: string;
-  // Local-only UI hint — used by the onboarding flow to decide whether to
-  // route a returning user past signup.
+  // Local-only UI hints used by the onboarding flow to decide where to route.
+  // `placed` — finished the post-signup placement conversation.
+  // `onboarded` — finished onboarding entirely (placement + daily goal).
+  placed?: boolean;
   onboarded?: boolean;
 }
 
