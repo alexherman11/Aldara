@@ -27,6 +27,7 @@ import {
   type StoredLearner,
   type TtsChoice,
 } from '@/lib/api';
+import { TtsSettings } from '@/components/TtsSettings';
 
 type Tab = 'profile' | 'progress' | 'debug';
 
@@ -243,6 +244,13 @@ function DebugTab({
         )}
       </Section>
 
+      <Section title="Voice (TTS)">
+        <TtsSettings />
+      </Section>
+
+      {/* Legacy single-string voice picker — kept for back-compat with the
+          older `tts` query param flow until we're sure no stale browser tab
+          relies on it. Safe to remove once the new picker is in production. */}
       <VoiceSelector />
 
       <Section title="LiveKit">

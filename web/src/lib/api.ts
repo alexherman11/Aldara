@@ -124,6 +124,15 @@ export interface DebugConfig {
     compaction_llm: string;
     scheduler: string;
   };
+  /**
+   * TTS provider/voice catalog from src/tts-catalog.ts. Added alongside the
+   * paired provider+voice picker; older servers won't include this field, so
+   * consumers should treat it as optional.
+   */
+  tts?: {
+    catalog: Record<string, ReadonlyArray<{ id: string; label: string }>>;
+    server_default_provider: string;
+  };
   db: { url_masked: string };
   env: { record_turns: boolean; learner_override: boolean };
 }
@@ -177,7 +186,11 @@ export function getToken(opts: {
   learnerId: string;
   room?: string;
   identity?: string;
+  /** Legacy single-string voice id. Prefer the paired ttsProvider/ttsVoice. */
   tts?: string;
+  /** New paired voice selection from the Settings drawer's picker. */
+  ttsProvider?: string;
+  ttsVoice?: string;
   /** 'placement' opens the post-signup calibration conversation. */
   mode?: 'placement' | 'normal';
 }): Promise<TokenResponse> {
@@ -186,6 +199,8 @@ export function getToken(opts: {
   if (opts.room) params.set('room', opts.room);
   if (opts.identity) params.set('identity', opts.identity);
   if (opts.tts) params.set('tts', opts.tts);
+  if (opts.ttsProvider) params.set('ttsProvider', opts.ttsProvider);
+  if (opts.ttsVoice) params.set('ttsVoice', opts.ttsVoice);
   if (opts.mode === 'placement') params.set('mode', 'placement');
   return request<TokenResponse>(`/api/token?${params.toString()}`);
 }

@@ -14,6 +14,7 @@ import {
   type TranscriptionSegment,
 } from 'livekit-client';
 import { getToken, readStoredLearner, readTtsChoice } from '@/lib/api';
+import { getTtsPreference } from '@/lib/tts-settings';
 import {
   PARTICIPANT_IDENTITY,
   agentStateToOrb,
@@ -141,10 +142,15 @@ export default function Session() {
       let token: string;
       let url: string;
       try {
+        // New paired picker beats the legacy single-string choice when set —
+        // backend still accepts both and the new fields take precedence.
+        const ttsPref = getTtsPreference();
         const t = await getToken({
           learnerId,
           room: `habla-${learnerId.slice(0, 8)}-${Date.now()}`,
           tts: readTtsChoice(),
+          ttsProvider: ttsPref?.provider,
+          ttsVoice: ttsPref?.voice,
         });
         token = t.token;
         url = t.url;

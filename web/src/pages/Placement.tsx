@@ -19,6 +19,7 @@ import {
   readStoredLearner,
   readTtsChoice,
 } from '@/lib/api';
+import { getTtsPreference } from '@/lib/tts-settings';
 import {
   PARTICIPANT_IDENTITY,
   PLACEMENT_CALIBRATION_TOPIC,
@@ -114,11 +115,14 @@ export default function Placement() {
       let token: string;
       let url: string;
       try {
+        const ttsPref = getTtsPreference();
         const t = await getToken({
           learnerId,
           mode: 'placement',
           room: `placement-${learnerId.slice(0, 8)}-${Date.now()}`,
           tts: readTtsChoice(),
+          ttsProvider: ttsPref?.provider,
+          ttsVoice: ttsPref?.voice,
         });
         token = t.token;
         url = t.url;
