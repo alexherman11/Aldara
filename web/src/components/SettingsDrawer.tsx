@@ -425,6 +425,7 @@ function LiveSession({ snapshot }: { snapshot: DevSnapshot }) {
               : '—',
           ],
           ['Session uptime', agentFirstSeenAt ? formatUptime(Date.now() - agentFirstSeenAt) : '—'],
+          ['Last turn', turns.length === 0 ? '—' : msAgo(turns[turns.length - 1].ts)],
           [
             'PTT',
             ptt.capturing
