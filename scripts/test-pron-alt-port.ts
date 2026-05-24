@@ -30,24 +30,38 @@ import {
 
 const SAMPLE_RATE = 48_000;
 
-async function cartesiaSynth(text: string, language: 'es' | 'en'): Promise<Buffer> {
-  const resp = await fetch('https://api.cartesia.ai/tts/bytes', {
+/** OpenAI gpt-4o-mini-tts → linearly upsample 24 kHz → 48 kHz. Same pattern as scenario-harness. */
+async function openaiSynth(text: string, voice = 'alloy'): Promise<Buffer> {
+  const resp = await fetch('https://api.openai.com/v1/audio/speech', {
     method: 'POST',
-    headers: {
-      'X-API-Key': process.env.CARTESIA_API_KEY!,
-      'Cartesia-Version': '2025-04-16',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model_id: 'sonic-3',
-      transcript: text,
-      voice: { mode: 'id', id: process.env.CARTESIA_VOICE_ID || '5c5ad5e7-1020-476b-8b91-fdcbe9cc313c' },
-      output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: SAMPLE_RATE },
-      language,
-    }),
+    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY!}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: 'gpt-4o-mini-tts', input: text, voice, response_format: 'pcm' }),
   });
-  if (!resp.ok) throw new Error(`Cartesia ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-  return Buffer.from(await resp.arrayBuffer());
+  if (!resp.ok) throw new Error(`OpenAI TTS ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+  const raw = Buffer.from(await resp.arrayBuffer());
+  return upsample24kTo48k(peakNormalize(raw));
+}
+
+function peakNormalize(pcm: Buffer, targetPeak = 23000): Buffer {
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) { const v = samples[i]; const a = v < 0 ? -v : v; if (a > peak) peak = a; }
+  if (peak === 0 || peak >= targetPeak) return pcm;
+  const gain = targetPeak / peak;
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    let v = Math.round(samples[i] * gain);
+    if (v > 32767) v = 32767; else if (v < -32768) v = -32768;
+    out[i] = v;
+  }
+  return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
+}
+
+function upsample24kTo48k(pcm24k: Buffer): Buffer {
+  const inS = new Int16Array(pcm24k.buffer, pcm24k.byteOffset, pcm24k.length / 2);
+  const outS = new Int16Array(inS.length * 2);
+  for (let i = 0; i < inS.length; i++) { outS[2*i] = inS[i]; outS[2*i+1] = inS[i]; }
+  return Buffer.from(outS.buffer, outS.byteOffset, outS.byteLength);
 }
 
 function bufferToInt16(buf: Buffer): Int16Array {
@@ -193,7 +207,7 @@ async function main() {
   for (let i = 0; i < TURNS.length; i++) {
     const turn = TURNS[i];
     console.log(`\n── Turn ${i+1}/${TURNS.length}: "${turn.text}"`);
-    const pcm = await cartesiaSynth(turn.text, turn.language);
+    const pcm = await openaiSynth(turn.text);
     const samples = bufferToInt16(pcm);
     console.log(`  synthesized ${samples.length} samples (~${(samples.length/SAMPLE_RATE).toFixed(2)}s)`);
 
