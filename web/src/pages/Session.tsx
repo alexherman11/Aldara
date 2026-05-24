@@ -13,18 +13,56 @@ import {
   type RemoteTrackPublication,
   type TranscriptionSegment,
 } from 'livekit-client';
-import { getToken, readStoredLearner } from '@/lib/api';
+import { getToken, readStoredLearner, readTtsChoice } from '@/lib/api';
+import { devBus } from '@/lib/dev-bus';
 
 const PARTICIPANT_IDENTITY = 'learner';
 
 type OrbState = 'idle' | 'speaking' | 'listening';
 
+type Fragment = { segId: string; text: string; final: boolean };
+
 type Msg = {
+  /** Stable id for React keys. Equals `${role}:${first segId}`. */
   id: string;
   role: 'tutor' | 'learner';
-  text: string;
+  /**
+   * One bubble can absorb multiple LiveKit transcription segments that arrive
+   * back-to-back from the same speaker. Without this, every streaming clause
+   * Cartesia synthesizes (which the agent emits as a separate transcript id)
+   * spawned its own little bubble — a visual rain.
+   */
+  fragments: Fragment[];
+  /** True once every fragment is marked final. */
   final: boolean;
 };
+
+interface PronunciationWord {
+  word: string;
+  score: number;
+  error_type: string;
+  phoneme_sub?: { from: string; to: string };
+  is_stretch: boolean;
+}
+
+interface PronunciationData {
+  turn: number;
+  reference_text: string;
+  recognized_text?: string;
+  overall: {
+    accuracy: number;
+    fluency: number;
+    completeness: number;
+    pronunciation: number;
+  };
+  prosody?: { score?: number; errors: Array<{ type: string }> };
+  words: PronunciationWord[];
+  divergence: boolean;
+}
+
+const FLAG_THRESHOLD = 70;
+/** How long after PTT release we keep accepting learner transcript segments. */
+const TRAILING_CAPTURE_MS = 1000;
 
 /** Map LiveKit agent state attribute → orb visual */
 function agentStateToOrb(agentState: string | undefined): OrbState {
@@ -40,6 +78,25 @@ function agentStateToOrb(agentState: string | undefined): OrbState {
     default:
       return 'idle';
   }
+}
+
+function normalizeText(s: string | undefined): string {
+  // Strip punctuation AND bracket/quote characters that occasionally wrap STT
+  // output (e.g. an older agent build sent reference_text as the JSON-encoded
+  // `["..."]`). Whitespace collapsed to single spaces so two reasonable spellings
+  // of the same utterance hash to the same bucket.
+  return (s ?? '')
+    .replace(/[.,!?;:¿¡"'`\[\]\(\)\{\}]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function bubbleText(msg: Msg): string {
+  return msg.fragments
+    .map((f) => f.text.trim())
+    .filter((t) => t.length > 0)
+    .join(' ');
 }
 
 export default function Session() {
@@ -59,9 +116,43 @@ export default function Session() {
   const [isPushing, setIsPushing] = useState(false);
   const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
 
+  /**
+   * Per-turn pronunciation results indexed by normalized reference text. The
+   * agent publishes after Azure completes (~400ms after the learner stops);
+   * by then the corresponding learner bubble is already on screen, so we
+   * attach by text match rather than by an in-flight turn counter we'd have
+   * to keep synchronized with the agent.
+   */
+  const [pronunciation, setPronunciation] = useState<
+    Map<string, PronunciationData>
+  >(() => new Map());
+
   const roomRef = useRef<Room | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const audioElsRef = useRef<Map<string, HTMLAudioElement>>(new Map());
+
+  /**
+   * True from the moment the user presses PTT until 1 s after release. The
+   * mic itself never mutes — Deepgram is producing interim transcripts the
+   * whole time and emitting them on `TranscriptionReceived`. Without this
+   * gate the learner side of the conversation visibly transcribes whatever
+   * the mic picks up at all times, which made it impossible to tell which
+   * speech Sofía actually heard.
+   *
+   * Trailing-edge window (TRAILING_CAPTURE_MS) keeps the gate open after
+   * release so the last syllable of the learner's utterance — which often
+   * lands ~300-500ms after their finger lifts — still makes it onto the
+   * bubble and into the ptt_end commit.
+   */
+  const capturingRef = useRef<boolean>(false);
+  const pttReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Learner segment ids that arrived inside an active capture window. Once a
+   * seg id is admitted we keep updating it even after the window closes,
+   * because Deepgram re-emits the same id with the final transcript a moment
+   * later — discarding the final would leave the bubble stuck on the interim.
+   */
+  const admittedLearnerSegsRef = useRef<Set<string>>(new Set());
 
   // ── Connect to LiveKit once the page mounts ──────────────────────
 
@@ -96,13 +187,17 @@ export default function Session() {
 
       let token: string;
       let url: string;
+      let roomName: string;
       try {
+        roomName = `habla-${learnerId.slice(0, 8)}-${Date.now()}`;
         const t = await getToken({
           learnerId,
-          room: `habla-${learnerId.slice(0, 8)}-${Date.now()}`,
+          room: roomName,
+          tts: readTtsChoice(),
         });
         token = t.token;
         url = t.url;
+        devBus.setRoom({ roomName, url });
       } catch (err) {
         if (!cancelled) {
           setErrorMsg(
@@ -125,6 +220,10 @@ export default function Session() {
 
       try {
         await room.connect(url, token);
+        // Mic stays live for the whole session — no toggle cost on press.
+        // The agent gates which audio it *processes* through the ptt_start /
+        // ptt_end RPC pair; the client-side bubble filter (see capturingRef)
+        // mirrors that gate so the transcript only shows what Sofía heard.
         await room.localParticipant.setMicrophoneEnabled(true);
       } catch (err) {
         if (!cancelled) {
@@ -141,6 +240,12 @@ export default function Session() {
 
     return () => {
       cancelled = true;
+      if (pttReleaseTimerRef.current) {
+        clearTimeout(pttReleaseTimerRef.current);
+        pttReleaseTimerRef.current = null;
+      }
+      capturingRef.current = false;
+      admittedLearnerSegsRef.current.clear();
       const room = roomRef.current;
       roomRef.current = null;
       if (room) {
@@ -152,6 +257,7 @@ export default function Session() {
         el.remove();
       });
       audioElsRef.current.clear();
+      devBus.reset();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -171,7 +277,16 @@ export default function Session() {
     if (!room || phase !== 'live') return;
     const target = findAgentIdentity(room);
     if (!target) return;
+    // Cancel any pending trailing-edge release from the previous turn — if the
+    // user presses again within the trailing window we treat it as one
+    // continuous turn rather than starting a second one mid-commit.
+    if (pttReleaseTimerRef.current) {
+      clearTimeout(pttReleaseTimerRef.current);
+      pttReleaseTimerRef.current = null;
+    }
+    capturingRef.current = true;
     setIsPushing(true);
+    devBus.setPtt({ capturing: true, lastStart: Date.now() });
     try {
       await room.localParticipant.performRpc({
         destinationIdentity: target,
@@ -180,25 +295,36 @@ export default function Session() {
       });
     } catch (err) {
       console.warn('ptt_start failed:', err);
+      capturingRef.current = false;
       setIsPushing(false);
+      devBus.setPtt({ capturing: false });
     }
   }, [phase]);
 
-  const endPtt = useCallback(async () => {
+  const endPtt = useCallback(() => {
     const room = roomRef.current;
     if (!room || phase !== 'live') return;
     setIsPushing(false);
     const target = findAgentIdentity(room);
     if (!target) return;
-    try {
-      await room.localParticipant.performRpc({
-        destinationIdentity: target,
-        method: 'ptt_end',
-        payload: '',
-      });
-    } catch (err) {
-      console.warn('ptt_end failed:', err);
-    }
+
+    // Hold capture open for one extra second on the trailing edge. Deepgram
+    // routinely lands the final syllable ~300-500 ms after the button is
+    // released; without this delay the learner's last word gets clipped and
+    // the agent commits an utterance missing its tail.
+    if (pttReleaseTimerRef.current) clearTimeout(pttReleaseTimerRef.current);
+    pttReleaseTimerRef.current = setTimeout(() => {
+      capturingRef.current = false;
+      pttReleaseTimerRef.current = null;
+      devBus.setPtt({ capturing: false, lastEnd: Date.now() });
+      void room.localParticipant
+        .performRpc({
+          destinationIdentity: target,
+          method: 'ptt_end',
+          payload: '',
+        })
+        .catch((err) => console.warn('ptt_end failed:', err));
+    }, TRAILING_CAPTURE_MS);
   }, [phase]);
 
   useEffect(() => {
@@ -261,9 +387,11 @@ export default function Session() {
 
   function setupRoomEvents(room: Room) {
     room.on(RoomEvent.ParticipantConnected, (p: RemoteParticipant) => {
-      if (p.attributes?.['lk.agent.state']) {
+      const s = p.attributes?.['lk.agent.state'];
+      if (s) {
         setAgentIdentity(p.identity);
-        setOrbState(agentStateToOrb(p.attributes['lk.agent.state']));
+        setOrbState(agentStateToOrb(s));
+        devBus.setAgent({ identity: p.identity, state: s, ts: Date.now() });
       }
     });
 
@@ -273,6 +401,11 @@ export default function Session() {
         if (changed['lk.agent.state']) {
           setAgentIdentity(p.identity);
           setOrbState(agentStateToOrb(changed['lk.agent.state']));
+          devBus.setAgent({
+            identity: p.identity,
+            state: changed['lk.agent.state'],
+            ts: Date.now(),
+          });
         }
       },
     );
@@ -313,17 +446,80 @@ export default function Session() {
       (segments: TranscriptionSegment[], participant?: Participant) => {
         const isAgent =
           !!participant && participant.identity !== PARTICIPANT_IDENTITY;
-        setMessages((prev) =>
-          mergeSegments(prev, segments, isAgent ? 'tutor' : 'learner'),
-        );
+        if (isAgent) {
+          setMessages((prev) => {
+            const next = mergeSegments(prev, segments, 'tutor');
+            publishLastTurn(next, 'tutor');
+            return next;
+          });
+          return;
+        }
+
+        // Learner side: Deepgram emits interim transcripts continuously while
+        // the mic is live. Only admit segments whose id was first seen inside
+        // an active capture window. Once admitted, all later updates for that
+        // seg id pass through (so the streaming interim → final upgrade still
+        // refines the same bubble after release).
+        const admitted = admittedLearnerSegsRef.current;
+        const allowed: TranscriptionSegment[] = [];
+        for (const seg of segments) {
+          if (admitted.has(seg.id)) {
+            allowed.push(seg);
+          } else if (capturingRef.current) {
+            admitted.add(seg.id);
+            allowed.push(seg);
+          }
+          // else: arrived between PTT presses → drop silently.
+        }
+        if (allowed.length > 0) {
+          setMessages((prev) => {
+            const next = mergeSegments(prev, allowed, 'learner');
+            publishLastTurn(next, 'learner');
+            return next;
+          });
+        }
+      },
+    );
+
+    // Pronunciation render data published by the agent immediately after the
+    // Azure (or SpeechAce) call completes. We stash by normalized reference
+    // text so the corresponding learner bubble — already on screen by the
+    // time the result arrives — lights up retroactively.
+    room.on(
+      RoomEvent.DataReceived,
+      (payload: Uint8Array, _participant?, _kind?, topic?: string) => {
+        if (topic !== 'pronunciation') return;
+        try {
+          const data = JSON.parse(
+            new TextDecoder().decode(payload),
+          ) as PronunciationData & { type: string };
+          if (data.type !== 'pronunciation') return;
+          const key = normalizeText(data.reference_text);
+          setPronunciation((prev) => {
+            const m = new Map(prev);
+            m.set(key, data);
+            return m;
+          });
+          devBus.setPronunciation({
+            reference_text: data.reference_text,
+            recognized_text: data.recognized_text,
+            overall: data.overall,
+            divergence: data.divergence,
+            ts: Date.now(),
+          });
+        } catch (err) {
+          console.warn('pronunciation payload parse failed:', err);
+        }
       },
     );
 
     room.on(RoomEvent.Connected, () => {
       for (const [, p] of room.remoteParticipants) {
-        if (p.attributes?.['lk.agent.state']) {
+        const s = p.attributes?.['lk.agent.state'];
+        if (s) {
           setAgentIdentity(p.identity);
-          setOrbState(agentStateToOrb(p.attributes['lk.agent.state']));
+          setOrbState(agentStateToOrb(s));
+          devBus.setAgent({ identity: p.identity, state: s, ts: Date.now() });
         }
       }
     });
@@ -333,11 +529,11 @@ export default function Session() {
 
   return (
     <div
-      className="flex-1 flex flex-col relative bg-background"
+      className="h-full min-h-0 flex flex-col relative bg-background"
       data-testid="session-screen"
     >
       {/* Header */}
-      <div className="absolute top-0 left-0 right-0 px-6 pt-10 pb-6 flex justify-between items-center z-20">
+      <div className="px-6 pt-10 pb-3 flex justify-between items-center z-20 shrink-0">
         <div className="flex items-center gap-2">
           <span
             className="w-2 h-2 rounded-full block"
@@ -397,80 +593,121 @@ export default function Session() {
         </div>
       )}
 
-      {/* Transcript */}
+      {/* Transcript — single centered column, no chat bubbles. Generous bottom
+          padding so the last entry never scrolls under the orb's sonar/halo
+          rings (which animate up to ~70px outside the orb's 96x96 wrapper).
+          Sofía's lines render as plain centered text with a small speaker
+          label; learner lines get a soft warm-orange pill so the speaker is
+          unambiguous without bubble-shape cues. */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-5 pt-28 pb-56 flex flex-col gap-3"
+        className="flex-1 min-h-0 overflow-y-auto px-5 pt-4 pb-32 flex flex-col items-center gap-7"
         style={{ scrollbarWidth: 'none' }}
       >
         {messages.length === 0 && phase === 'live' && (
-          <div className="self-center max-w-md text-center text-sm text-muted-foreground mt-12">
+          <div className="max-w-md text-center text-sm text-muted-foreground mt-12">
             Sofía is here. Hold the mic button and say{' '}
             <em>“hola”</em>, or wait — she may greet you first.
           </div>
         )}
         <AnimatePresence>
-          {messages.map((msg) => (
-            <motion.div
-              key={msg.id}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: msg.final ? 1 : 0.7, y: 0 }}
-              transition={{ duration: 0.25 }}
-              className={`max-w-[82%] flex flex-col gap-1.5 ${msg.role === 'tutor' ? 'self-start' : 'self-end'}`}
-            >
-              <div
-                className={`rounded-2xl px-4 py-3 border text-[15px] leading-relaxed ${
-                  msg.role === 'tutor'
-                    ? 'bg-card text-foreground rounded-tl-sm border-border'
-                    : 'rounded-tr-sm border-primary/20'
-                }`}
-                style={
-                  msg.role === 'learner'
-                    ? {
-                        background: 'hsl(15 85% 52% / 0.12)',
-                        color: 'hsl(15 60% 38%)',
-                      }
-                    : undefined
-                }
+          {messages.map((msg) => {
+            const text = bubbleText(msg);
+            const pron =
+              msg.role === 'learner'
+                ? pronunciation.get(normalizeText(text))
+                : null;
+            const label = msg.role === 'tutor' ? 'Sofía' : 'tú';
+            return (
+              <motion.div
+                key={msg.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: msg.final ? 1 : 0.65, y: 0 }}
+                transition={{ duration: 0.25 }}
+                className="w-full max-w-[640px] flex flex-col items-center gap-2"
               >
-                {msg.text || <em className="opacity-50">…</em>}
-              </div>
-            </motion.div>
-          ))}
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground"
+                  style={{ opacity: 0.7 }}
+                >
+                  {label}
+                </span>
+
+                {msg.role === 'tutor' ? (
+                  <p
+                    className="font-serif text-lg leading-relaxed text-foreground text-center px-2"
+                    data-testid="bubble-tutor"
+                  >
+                    {text || <em className="opacity-50">…</em>}
+                  </p>
+                ) : (
+                  <div
+                    className="rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed text-center border"
+                    style={{
+                      background: 'hsl(15 85% 52% / 0.10)',
+                      borderColor: 'hsl(15 85% 52% / 0.22)',
+                      color: 'hsl(15 60% 36%)',
+                    }}
+                    data-testid="bubble-learner"
+                  >
+                    {text ? (
+                      pron ? (
+                        <AnnotatedLearnerText text={text} pron={pron} />
+                      ) : (
+                        text
+                      )
+                    ) : (
+                      <em className="opacity-50">…</em>
+                    )}
+                  </div>
+                )}
+
+                {pron && msg.role === 'learner' && (
+                  <PronunciationSummary pron={pron} />
+                )}
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </div>
 
-      {/* Bottom — orb + push-to-talk */}
+      {/* Bottom — orb + push-to-talk. Fixed top padding (`pt-16`) reserves the
+          vertical room the orb's halo/sonar rings need so they don't bleed
+          into the transcript area above. A tall fade gradient (~120px) masks
+          any bubble that does manage to scroll into this region.
+          The waveform sits in a fixed-height row so the orb doesn't jump
+          vertically when listening state toggles. */}
       <div
-        className="absolute bottom-0 left-0 right-0 flex flex-col items-center pb-8 pt-4"
+        className="shrink-0 flex flex-col items-center pt-16 pb-6"
         style={{
           background:
-            'linear-gradient(to top, hsl(var(--background)) 70%, transparent)',
+            'linear-gradient(to top, hsl(var(--background)) 65%, hsl(var(--background) / 0) 100%)',
         }}
       >
-        <AnimatePresence>
-          {orbState === 'listening' && (
-            <motion.div
-              key="waveform"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="mb-3"
-            >
-              <Waveform />
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="h-7 flex items-end justify-center">
+          <AnimatePresence>
+            {orbState === 'listening' && (
+              <motion.div
+                key="waveform"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+              >
+                <Waveform />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         <motion.div
           layoutId="dara-orb"
-          style={{ width: 96, height: 96 }}
+          style={{ width: 96, height: 96, marginTop: 8 }}
           transition={{ layout: { duration: 1.2, ease: [0.22, 1, 0.36, 1] } }}
         >
           <Orb state={orbState} />
         </motion.div>
 
-        <p className="mt-2 mb-3 text-xs text-muted-foreground font-medium h-4">
+        <p className="mt-3 mb-3 text-xs text-muted-foreground font-medium h-4">
           {phase === 'connecting'
             ? 'Connecting to Sofía…'
             : orbState === 'speaking'
@@ -527,25 +764,255 @@ export default function Session() {
 }
 
 /**
- * Merge an incoming batch of segments into the running message list. LiveKit
- * fires this event for both interim and final transcripts — update in place
- * by segment id so interim text replaces itself rather than spawning a new
- * bubble every frame.
+ * Tokenize the learner's transcript on whitespace, match each token to a
+ * pronunciation-engine word (punctuation-stripped, case-insensitive), and
+ * decorate flagged words with a colored underline + inline phoneme arrow.
+ *
+ * Stretch words (FSRS items the tutor is scaffolding) get a green highlight
+ * even when scored cleanly — they're a "you reached for it" moment worth
+ * celebrating. Mispronunciations (<70) get a warm-red underline; if the
+ * engine also captured the substituted phoneme we render it as a small inline
+ * citation like  hablo[/h/→/x/] espanol, mirroring the user's mental model
+ * for how Sofía should be acting on these.
+ */
+function AnnotatedLearnerText({
+  text,
+  pron,
+}: {
+  text: string;
+  pron: PronunciationData;
+}) {
+  const byKey = new Map<string, PronunciationWord>();
+  for (const w of pron.words) {
+    byKey.set(normalizeText(w.word), w);
+  }
+
+  // Split on whitespace while preserving the inter-word spaces so we can
+  // re-render the original spacing untouched.
+  const tokens = text.split(/(\s+)/);
+  return (
+    <span>
+      {tokens.map((tok, i) => {
+        if (/^\s+$/.test(tok) || tok === '') {
+          return <React.Fragment key={i}>{tok}</React.Fragment>;
+        }
+        const w = byKey.get(normalizeText(tok));
+        if (!w) {
+          return <React.Fragment key={i}>{tok}</React.Fragment>;
+        }
+        const flagged = w.score < FLAG_THRESHOLD || w.error_type !== 'None';
+        const stretch = w.is_stretch;
+
+        let underline = 'none';
+        let color: string | undefined;
+        let background: string | undefined;
+        if (flagged) {
+          underline = '2px solid hsl(0 75% 48%)';
+          color = 'hsl(0 65% 32%)';
+        } else if (stretch) {
+          background = 'hsl(140 60% 50% / 0.18)';
+          color = 'hsl(140 60% 28%)';
+        }
+
+        const title = `Pronunciation ${w.score}/100${
+          w.phoneme_sub
+            ? ` — produced /${w.phoneme_sub.to}/ where /${w.phoneme_sub.from}/ was expected`
+            : ''
+        }${w.error_type !== 'None' ? ` (${w.error_type})` : ''}${
+          stretch ? ' · FSRS stretch word' : ''
+        }`;
+
+        return (
+          <span
+            key={i}
+            title={title}
+            style={{
+              textDecoration: underline,
+              textUnderlineOffset: '3px',
+              textDecorationSkipInk: 'none',
+              color,
+              background,
+              padding: background ? '0 2px' : undefined,
+              borderRadius: background ? 3 : undefined,
+              transition: 'color 200ms ease, background 200ms ease',
+            }}
+            data-flagged={flagged ? 'true' : 'false'}
+            data-stretch={stretch ? 'true' : 'false'}
+          >
+            {tok}
+            {flagged && w.phoneme_sub && (
+              <span
+                aria-hidden="true"
+                style={{
+                  fontSize: '0.7em',
+                  marginLeft: 2,
+                  color: 'hsl(0 60% 40%)',
+                  opacity: 0.85,
+                  fontFamily: 'var(--app-font-mono)',
+                }}
+              >
+                [/{w.phoneme_sub.from}/→/{w.phoneme_sub.to}/]
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/**
+ * One-line band below a learner bubble that conveys the overall score, any
+ * STT/assessor divergence, and persistent prosody flags. Mirrors what the
+ * agent sees in its system prompt — the goal is for the learner to register
+ * the same signals Sofía is acting on.
+ */
+function PronunciationSummary({ pron }: { pron: PronunciationData }) {
+  const score = Math.round(pron.overall.pronunciation);
+  const tone =
+    score >= 85
+      ? 'hsl(140 60% 28%)'
+      : score >= 70
+        ? 'hsl(38 70% 30%)'
+        : 'hsl(0 65% 35%)';
+  const bg =
+    score >= 85
+      ? 'hsl(140 60% 50% / 0.10)'
+      : score >= 70
+        ? 'hsl(38 90% 55% / 0.12)'
+        : 'hsl(0 75% 50% / 0.10)';
+  return (
+    <div
+      className="text-[11px] font-medium px-2 py-0.5 rounded-md flex items-center gap-2"
+      style={{ color: tone, background: bg }}
+      data-testid="pronunciation-summary"
+    >
+      <span>Pronunciation {score}</span>
+      {pron.divergence && pron.recognized_text && (
+        <span className="opacity-80 italic">
+          heard “{pron.recognized_text.trim()}”
+        </span>
+      )}
+      {pron.prosody?.errors?.some((e) => e.type === 'Monotone') && (
+        <span className="opacity-80">· monotone</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Merge an incoming batch of segments into the running message list.
+ *
+ * Two responsibilities:
+ *   1. **In-place update** when LiveKit re-emits the same segment id with new
+ *      text (the streaming-partial → final pattern).
+ *   2. **Coalesce same-role chunks** into a single bubble. The LLM emits text
+ *      in clause-sized chunks (see PIPELINE_ARCH § text buffer); each chunk
+ *      lands as its own transcription segment with a fresh id. Naively keying
+ *      the bubble on `${role}:${segId}` then spawns a new bubble per clause,
+ *      producing the "audio flowing down the screen in multiple small bubbles"
+ *      effect. We instead attach the new segment as a fragment of the
+ *      currently-open bubble for that role; a turn boundary is implicit —
+ *      arrival of a segment from the OTHER role.
  */
 function mergeSegments(
   prev: Msg[],
   segments: TranscriptionSegment[],
   role: 'tutor' | 'learner',
 ): Msg[] {
-  const next = [...prev];
+  let next = prev;
+  let mutated = false;
+
   for (const seg of segments) {
-    const id = `${role}:${seg.id}`;
-    const idx = next.findIndex((m) => m.id === id);
-    const m: Msg = { id, role, text: seg.text, final: seg.final };
-    if (idx >= 0) next[idx] = m;
-    else next.push(m);
+    // 1. Update path — segment id already lives in some bubble.
+    let updatedExisting = false;
+    for (let i = 0; i < next.length; i++) {
+      const bubble = next[i];
+      const fragIdx = bubble.fragments.findIndex((f) => f.segId === seg.id);
+      if (fragIdx < 0) continue;
+      if (!mutated) {
+        next = [...next];
+        mutated = true;
+      }
+      const newFrags = [...bubble.fragments];
+      newFrags[fragIdx] = {
+        segId: seg.id,
+        text: seg.text,
+        final: seg.final,
+      };
+      next[i] = {
+        ...bubble,
+        fragments: newFrags,
+        final: newFrags.every((f) => f.final),
+      };
+      updatedExisting = true;
+      break;
+    }
+    if (updatedExisting) continue;
+
+    // 2. New segment id. Is there a still-open bubble for this role at the
+    // tail? An "open" bubble is one not yet shouldered aside by a segment
+    // from the other speaker.
+    let openIdx = -1;
+    for (let i = next.length - 1; i >= 0; i--) {
+      if (next[i].role !== role) break;
+      openIdx = i;
+      // Only the most recent same-role bubble is "open"; older ones are sealed
+      // by the eventual other-role bubble. We want the last bubble of `role`
+      // immediately before any other-role bubble — i.e. the first hit walking
+      // back from the tail.
+      break;
+    }
+
+    if (!mutated) {
+      next = [...next];
+      mutated = true;
+    }
+
+    const newFrag: Fragment = {
+      segId: seg.id,
+      text: seg.text,
+      final: seg.final,
+    };
+
+    if (openIdx >= 0) {
+      const cur = next[openIdx];
+      const newFrags = [...cur.fragments, newFrag];
+      next[openIdx] = {
+        ...cur,
+        fragments: newFrags,
+        final: newFrags.every((f) => f.final),
+      };
+    } else {
+      next.push({
+        id: `${role}:${seg.id}`,
+        role,
+        fragments: [newFrag],
+        final: seg.final,
+      });
+    }
   }
-  return next;
+
+  return mutated ? next : prev;
+}
+
+/**
+ * Publish the most recent same-role bubble to the dev bus. Called after each
+ * mergeSegments so the Developer tab's "live session" disclosure stays in
+ * sync with what the user just saw on screen, including streaming partials.
+ */
+function publishLastTurn(messages: Msg[], role: 'tutor' | 'learner') {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role !== role) continue;
+    devBus.recordTurn({
+      role: m.role,
+      text: bubbleText(m),
+      final: m.final,
+      ts: Date.now(),
+    });
+    return;
+  }
 }
 
 function findAgentIdentity(room: Room): string | null {

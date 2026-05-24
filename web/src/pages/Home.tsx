@@ -14,11 +14,16 @@ export default function Home() {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-6 pt-10 pb-2">
-        <h1 className="font-serif text-2xl text-foreground">Hola, {name}</h1>
+      {/* Top bar — menu, greeting, streak. */}
+      <div className="flex items-center justify-between gap-3 px-6 pt-10 pb-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <SettingsDrawer />
+          <h1 className="font-serif text-3xl text-foreground truncate">
+            Hola, {name}
+          </h1>
+        </div>
         <div
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card"
           data-testid="streak-counter"
         >
           <span className="text-orange-400 text-sm">🔥</span>
@@ -50,12 +55,8 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Bottom: settings + progress */}
+      {/* Bottom: progress */}
       <div className="px-6 pb-10 space-y-5">
-        <div className="flex items-center justify-between mb-1">
-          <SettingsDrawer />
-        </div>
-
         <div data-testid="progress-minutes">
           <div className="flex justify-between items-baseline mb-2">
             <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">

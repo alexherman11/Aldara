@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useSyncExternalStore } from 'react';
 import {
   Drawer,
   DrawerContent,
@@ -9,7 +9,6 @@ import {
   User,
   TrendingUp,
   Terminal,
-  Pencil,
   RefreshCcw,
 } from 'lucide-react';
 import { useLocation } from 'wouter';
@@ -19,16 +18,51 @@ import {
   getDebugConfig,
   getLearnerState,
   readStoredLearner,
+  readTtsChoice,
+  writeTtsChoice,
+  TTS_OPTIONS,
   type DebugConfig,
   type LearnerState,
   type StoredLearner,
+  type TtsChoice,
 } from '@/lib/api';
+import {
+  devBus,
+  onDevModeChange,
+  readDevMode,
+  writeDevMode,
+  type DevSnapshot,
+} from '@/lib/dev-bus';
 
-type Tab = 'profile' | 'progress' | 'debug';
+type Tab = 'profile' | 'progress' | 'developer';
+
+// ── Hooks ────────────────────────────────────────────────────────────
+
+function useDevMode(): [boolean, (on: boolean) => void] {
+  const [on, setOn] = useState<boolean>(() => readDevMode());
+  useEffect(() => onDevModeChange((v) => setOn(v)), []);
+  return [on, (next: boolean) => writeDevMode(next)];
+}
+
+function useDevSnapshot(): DevSnapshot {
+  return useSyncExternalStore(
+    (cb) => devBus.subscribe(cb),
+    () => devBus.getSnapshot(),
+    () => devBus.getSnapshot(),
+  );
+}
 
 // ── Profile ───────────────────────────────────────────────────────────
 
-function ProfileTab({ stored }: { stored: StoredLearner | null }) {
+function ProfileTab({
+  stored,
+  devMode,
+  setDevMode,
+}: {
+  stored: StoredLearner | null;
+  devMode: boolean;
+  setDevMode: (on: boolean) => void;
+}) {
   const profile = stored?.profile ?? {};
   const initials = (profile.name || 'U')
     .split(' ')
@@ -79,16 +113,56 @@ function ProfileTab({ stored }: { stored: StoredLearner | null }) {
         ))}
       </div>
 
+      <SettingsToggleRow
+        label="Developer mode"
+        helper="Show pipeline internals, learner core JSON, and live conversation diagnostics."
+        on={devMode}
+        onChange={setDevMode}
+        testId="toggle-dev-mode"
+      />
+    </div>
+  );
+}
+
+function SettingsToggleRow({
+  label,
+  helper,
+  on,
+  onChange,
+  testId,
+}: {
+  label: string;
+  helper?: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+  testId?: string;
+}) {
+  return (
+    <div className="bg-card border border-border rounded-2xl px-4 py-3 flex items-start justify-between gap-3">
+      <div className="flex flex-col">
+        <span className="text-sm font-semibold text-foreground">{label}</span>
+        {helper && (
+          <span className="text-xs text-muted-foreground mt-0.5 leading-snug">
+            {helper}
+          </span>
+        )}
+      </div>
       <button
-        disabled
-        className="flex items-center justify-center gap-2 w-full h-11 rounded-xl border-2 text-sm font-semibold transition-colors opacity-60"
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        data-testid={testId}
+        className="shrink-0 relative w-11 h-6 rounded-full transition-colors"
         style={{
-          borderColor: 'hsl(15 85% 52% / 0.30)',
-          color: 'hsl(15 70% 65%)',
+          background: on ? 'hsl(15 85% 52%)' : 'hsl(var(--muted))',
         }}
       >
-        <Pencil className="w-4 h-4" />
-        Edit Profile (soon)
+        <span
+          className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform"
+          style={{
+            transform: on ? 'translateX(22px)' : 'translateX(2px)',
+          }}
+        />
       </button>
     </div>
   );
@@ -176,9 +250,9 @@ function ProgressTab({ state }: { state: LearnerState | null }) {
   );
 }
 
-// ── Debug (compaction architecture, agent config) ─────────────────────
+// ── Developer (only shown when dev mode is on) ────────────────────────
 
-function DebugTab({
+function DeveloperTab({
   state,
   config,
   loading,
@@ -189,6 +263,7 @@ function DebugTab({
   loading: boolean;
   onRefresh: () => void;
 }) {
+  const snapshot = useDevSnapshot();
   const lastCompactionRaw =
     typeof window !== 'undefined'
       ? sessionStorage.getItem('habla_last_compaction')
@@ -220,97 +295,183 @@ function DebugTab({
 
       <ArchitectureDiagram />
 
-      {/* Live pipeline config */}
-      <Section title="Pipeline">
+      <Disclosure title="Live session" defaultOpen>
+        <LiveSession snapshot={snapshot} />
+      </Disclosure>
+
+      <Disclosure title="Pipeline & LiveKit">
         {config ? (
-          <KvList
-            rows={[
-              ['STT', config.pipeline.stt],
-              ['LLM', config.pipeline.llm],
-              ['TTS', config.pipeline.tts],
-              ['VAD', config.pipeline.vad],
-              ['Pronunciation', config.pipeline.pronunciation],
-              ['Compaction LLM', config.pipeline.compaction_llm],
-              ['Scheduler', config.pipeline.scheduler],
-            ]}
-          />
+          <div className="flex flex-col gap-3">
+            <KvList
+              rows={[
+                ['STT', config.pipeline.stt],
+                ['LLM', config.pipeline.llm],
+                ['TTS', config.pipeline.tts],
+                ['VAD', config.pipeline.vad],
+                ['Pronunciation', config.pipeline.pronunciation],
+                ['Compaction LLM', config.pipeline.compaction_llm],
+                ['Scheduler', config.pipeline.scheduler],
+              ]}
+            />
+            <VoiceSelectorInline />
+            <KvList
+              rows={[
+                ['Server', config.livekit.url],
+                ['Agent name', config.livekit.agent_name],
+              ]}
+            />
+          </div>
         ) : (
           <Placeholder>Backend offline — start the server.</Placeholder>
         )}
-      </Section>
+      </Disclosure>
 
-      <Section title="LiveKit">
-        {config ? (
-          <KvList
-            rows={[
-              ['Server', config.livekit.url],
-              ['Agent name', config.livekit.agent_name],
-            ]}
-          />
-        ) : (
-          <Placeholder>—</Placeholder>
-        )}
-      </Section>
-
-      <Section title="Learner state">
+      <Disclosure title="Learner state">
         {state ? (
-          <KvList
-            rows={[
-              ['Learner ID', state.learner.id],
-              ['Core version', `v${state.learner.core_version}`],
-              ['CEFR', state.learner.cefr_level],
-              ['Sessions', String(state.learner.session_count)],
-              [
-                'Last session',
-                state.last_session
-                  ? `${new Date(state.last_session.started_at).toLocaleString()} (${state.last_session.transcript_length} turns)`
-                  : '—',
-              ],
-            ]}
-          />
+          <div className="flex flex-col gap-3">
+            <KvList
+              rows={[
+                ['Learner ID', state.learner.id],
+                ['Core version', `v${state.learner.core_version}`],
+                ['CEFR', state.learner.cefr_level],
+                ['Sessions', String(state.learner.session_count)],
+                [
+                  'Last session',
+                  state.last_session
+                    ? `${new Date(state.last_session.started_at).toLocaleString()} (${state.last_session.transcript_length} turns)`
+                    : '—',
+                ],
+              ]}
+            />
+            <JsonPre
+              label="Learner core"
+              value={state.learner.learner_core}
+            />
+            <JsonPre label="Tutor core" value={state.learner.tutor_core} />
+          </div>
         ) : (
           <Placeholder>No learner state yet — finish signup.</Placeholder>
         )}
-      </Section>
+      </Disclosure>
 
-      <Section title="Learner core (JSONB)">
-        <pre className="text-[11px] leading-snug overflow-x-auto bg-muted/40 rounded-lg p-3 max-h-56 overflow-y-auto">
-          {state ? JSON.stringify(state.learner.learner_core, null, 2) : '—'}
-        </pre>
-      </Section>
-
-      <Section title="Tutor core (JSONB)">
-        <pre className="text-[11px] leading-snug overflow-x-auto bg-muted/40 rounded-lg p-3 max-h-56 overflow-y-auto">
-          {state ? JSON.stringify(state.learner.tutor_core, null, 2) : '—'}
-        </pre>
-      </Section>
-
-      <Section title="Last compaction result">
-        <pre className="text-[11px] leading-snug overflow-x-auto bg-muted/40 rounded-lg p-3 max-h-56 overflow-y-auto">
-          {lastCompaction
-            ? JSON.stringify(lastCompaction, null, 2)
-            : 'No compaction yet this browser session.'}
-        </pre>
-      </Section>
-
-      <Section title="Database">
-        {config ? (
-          <KvList
-            rows={[
-              ['Connection', config.db.url_masked || '—'],
-              ['Record turns', config.env.record_turns ? 'on' : 'off'],
-              [
-                'LEARNER_ID env override',
-                config.env.learner_override ? 'set (debug)' : 'unset',
-              ],
-            ]}
+      <Disclosure title="Last compaction & DB">
+        <div className="flex flex-col gap-3">
+          <JsonPre
+            label="Last compaction result"
+            value={lastCompaction ?? 'No compaction yet this browser session.'}
           />
-        ) : (
-          <Placeholder>—</Placeholder>
-        )}
-      </Section>
+          {config ? (
+            <KvList
+              rows={[
+                ['Connection', config.db.url_masked || '—'],
+                ['Record turns', config.env.record_turns ? 'on' : 'off'],
+                [
+                  'LEARNER_ID env override',
+                  config.env.learner_override ? 'set (debug)' : 'unset',
+                ],
+              ]}
+            />
+          ) : (
+            <Placeholder>—</Placeholder>
+          )}
+        </div>
+      </Disclosure>
     </div>
   );
+}
+
+function LiveSession({ snapshot }: { snapshot: DevSnapshot }) {
+  const { room, agent, turns, lastPronunciation, ptt } = snapshot;
+
+  if (!room.roomName && !agent && turns.length === 0) {
+    return (
+      <Placeholder>
+        Open a session — agent state, recent turns, and pronunciation payloads
+        will stream here in real time.
+      </Placeholder>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <KvList
+        rows={[
+          ['Room', room.roomName || '—'],
+          ['LiveKit URL', room.url || '—'],
+          ['Agent identity', agent?.identity || '—'],
+          [
+            'Agent state',
+            agent
+              ? `${agent.state} (${msAgo(agent.ts)})`
+              : '—',
+          ],
+          [
+            'PTT',
+            ptt.capturing
+              ? `capturing (started ${msAgo(ptt.lastStart)})`
+              : ptt.lastEnd
+                ? `idle (ended ${msAgo(ptt.lastEnd)})`
+                : 'idle',
+          ],
+        ]}
+      />
+
+      <div>
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+          Recent turns (last {turns.length})
+        </p>
+        {turns.length === 0 ? (
+          <Placeholder>No turns yet.</Placeholder>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {turns.map((t, i) => (
+              <div
+                key={i}
+                className="bg-card border border-border rounded-lg px-3 py-2 text-xs flex items-start gap-2"
+              >
+                <span
+                  className="shrink-0 font-semibold uppercase text-[10px] tracking-wider"
+                  style={{
+                    color:
+                      t.role === 'tutor'
+                        ? 'hsl(var(--muted-foreground))'
+                        : 'hsl(15 70% 50%)',
+                  }}
+                >
+                  {t.role === 'tutor' ? 'Sofía' : 'tú'}
+                </span>
+                <span className="text-foreground flex-1 break-words">
+                  {t.text || <em className="opacity-50">…</em>}
+                  {!t.final && <em className="opacity-50"> (interim)</em>}
+                </span>
+                {t.pronunciationScore != null && (
+                  <span
+                    className="shrink-0 text-[10px] font-semibold"
+                    style={{ color: 'hsl(15 70% 45%)' }}
+                  >
+                    {Math.round(t.pronunciationScore)}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <JsonPre
+        label="Last pronunciation payload"
+        value={lastPronunciation ?? 'None this session.'}
+      />
+    </div>
+  );
+}
+
+function msAgo(ts: number | undefined): string {
+  if (!ts) return '—';
+  const diff = Date.now() - ts;
+  if (diff < 1000) return `${diff}ms ago`;
+  if (diff < 60_000) return `${Math.round(diff / 1000)}s ago`;
+  return `${Math.round(diff / 60_000)}m ago`;
 }
 
 function ArchitectureDiagram() {
@@ -342,19 +503,45 @@ End session ─► Claude (Sonnet) compaction
   );
 }
 
-function Section({
+function Disclosure({
   title,
   children,
+  defaultOpen = false,
 }: {
   title: string;
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }) {
   return (
+    <details
+      className="group bg-card/40 border border-border rounded-xl overflow-hidden"
+      open={defaultOpen}
+    >
+      <summary
+        className="px-3 py-2 flex items-center justify-between cursor-pointer select-none text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+        style={{ listStyle: 'none' }}
+      >
+        <span>{title}</span>
+        <span className="text-[10px] opacity-60 group-open:rotate-90 transition-transform">
+          ▶
+        </span>
+      </summary>
+      <div className="px-3 pb-3 pt-1">{children}</div>
+    </details>
+  );
+}
+
+function JsonPre({ label, value }: { label: string; value: unknown }) {
+  return (
     <div>
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
-        {title}
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
+        {label}
       </p>
-      {children}
+      <pre className="text-[11px] leading-snug overflow-x-auto bg-muted/40 rounded-lg p-3 max-h-56 overflow-y-auto">
+        {typeof value === 'string'
+          ? value
+          : JSON.stringify(value, null, 2)}
+      </pre>
     </div>
   );
 }
@@ -382,11 +569,46 @@ function Placeholder({ children }: { children: React.ReactNode }) {
   );
 }
 
+// Per-session voice/provider picker. The choice is persisted to localStorage
+// and read by Session.tsx when it requests a LiveKit token — so it applies to
+// the next session, not the one currently running (TTS is bound at the agent
+// session's start).
+function VoiceSelectorInline() {
+  const [choice, setChoice] = useState<TtsChoice>(() => readTtsChoice());
+  return (
+    <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Voice (TTS)
+      </span>
+      <select
+        value={choice}
+        onChange={(e) => {
+          const v = e.target.value as TtsChoice;
+          setChoice(v);
+          writeTtsChoice(v);
+        }}
+        className="w-full h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono text-foreground"
+        data-testid="select-tts"
+      >
+        {TTS_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-muted-foreground">
+        Applies to your next session — start a new conversation to hear it.
+      </p>
+    </div>
+  );
+}
+
 // ── Drawer container ─────────────────────────────────────────────────
 
 export function SettingsDrawer() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
+  const [devMode, setDevMode] = useDevMode();
   const stored = readStoredLearner();
 
   const [state, setState] = useState<LearnerState | null>(null);
@@ -412,6 +634,12 @@ export function SettingsDrawer() {
     void refresh();
   }, [refresh]);
 
+  // If dev mode flips off while the developer tab is active, bounce back
+  // to Profile so we don't get stuck on a hidden tab.
+  useEffect(() => {
+    if (!devMode && activeTab === 'developer') setActiveTab('profile');
+  }, [devMode, activeTab]);
+
   const handleSignOut = () => {
     clearStoredLearner();
     setLocation('/signup');
@@ -420,7 +648,9 @@ export function SettingsDrawer() {
   const tabs: { id: Tab; label: string; Icon: typeof User }[] = [
     { id: 'profile', label: 'Profile', Icon: User },
     { id: 'progress', label: 'Progress', Icon: TrendingUp },
-    { id: 'debug', label: 'Debug', Icon: Terminal },
+    ...(devMode
+      ? [{ id: 'developer' as Tab, label: 'Developer', Icon: Terminal }]
+      : []),
   ];
 
   return (
@@ -442,38 +672,47 @@ export function SettingsDrawer() {
           </p>
         </div>
 
-        <div className="shrink-0 flex items-center gap-1 px-4 pb-3 border-b border-border">
+        <div className="shrink-0 flex items-stretch gap-6 px-5 border-b border-border">
           {tabs.map(({ id, label, Icon }) => {
             const isActive = activeTab === id;
             return (
               <button
                 key={id}
                 onClick={() => setActiveTab(id)}
-                className="flex-1 flex flex-col items-center gap-1 py-2 rounded-xl text-xs font-semibold transition-all"
+                className="flex items-center gap-1.5 py-3 text-xs font-semibold uppercase tracking-wider transition-colors relative"
                 style={{
-                  background: isActive
-                    ? 'hsl(15 85% 52% / 0.10)'
-                    : 'transparent',
                   color: isActive
-                    ? 'hsl(15 70% 65%)'
+                    ? 'hsl(15 70% 50%)'
                     : 'hsl(var(--muted-foreground))',
                 }}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-3.5 h-3.5" />
                 {label}
+                {isActive && (
+                  <span
+                    className="absolute left-0 right-0 -bottom-px h-0.5 rounded-full"
+                    style={{ background: 'hsl(15 85% 52%)' }}
+                  />
+                )}
               </button>
             );
           })}
         </div>
 
         <div
-          className="flex-1 overflow-y-auto px-4 pt-4"
+          className="flex-1 overflow-y-auto px-5 pt-4"
           style={{ scrollbarWidth: 'thin' }}
         >
-          {activeTab === 'profile' && <ProfileTab stored={stored} />}
+          {activeTab === 'profile' && (
+            <ProfileTab
+              stored={stored}
+              devMode={devMode}
+              setDevMode={setDevMode}
+            />
+          )}
           {activeTab === 'progress' && <ProgressTab state={state} />}
-          {activeTab === 'debug' && (
-            <DebugTab
+          {activeTab === 'developer' && devMode && (
+            <DeveloperTab
               state={state}
               config={config}
               loading={loading}
@@ -482,7 +721,7 @@ export function SettingsDrawer() {
           )}
         </div>
 
-        <div className="shrink-0 px-4 pb-8 pt-2 border-t border-border">
+        <div className="shrink-0 px-5 pb-8 pt-2 border-t border-border">
           <button
             onClick={handleSignOut}
             className="w-full h-10 rounded-xl text-sm font-semibold border border-border text-muted-foreground hover:text-foreground hover:border-destructive/50 transition-colors"
