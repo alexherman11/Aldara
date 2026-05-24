@@ -179,12 +179,16 @@ async function printStatus(actionRows) {
     const ownedByUs = alive;
     // Status legend:
     //   managed  — we spawned it and the PID is still alive
-    //   external — port is held by something we didn't start (another worktree, audio agent, etc.)
-    //   down     — no PID and no port
-    //   dead     — we have a PID record but the process is gone (orphaned state)
+    //   external — port is held by something (another worktree, audio agent,
+    //              your background-Bash launch, or even a process we spawned
+    //              and lost track of — we can't tell who)
+    //   down     — no PID and no port responding
+    //   —        — no port to probe (only `agent`) AND we don't track a live PID
+    // "dead" was a previous status for "we recorded a PID, that PID is gone,
+    // and no port responds." We collapsed it into either external (if port up)
+    // or down (if not) — the practical question is "is something responding?"
     let status;
     if (ownedByUs) status = 'managed';
-    else if (!alive && ent?.pid) status = 'dead';
     else if (activePort) status = 'external';
     else if (p.port === 0) status = '—';
     else status = 'down';

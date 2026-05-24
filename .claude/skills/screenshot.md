@@ -29,7 +29,7 @@ The output PNG is written to `.claude/screenshots/<timestamp>-<slug>.png` and th
 
 - `--route=<path>` — SPA route, default `/`. Leading-slash safe (Git Bash mangles `/x` → `C:/Program Files/Git/x`; the script detects and undoes this)
 - `--seed=<preset[,…]>` — comma-separated seeds applied to `localStorage` before the SPA boots. Defined presets:
-  - `signed-in` — fake learner row, marks placement + onboarding complete (skips /signup, /placement)
+  - `signed-in` — learner row using the **real seeded learner id** (`00000000-...-002`, the post-`test-evolution` Postgres seed). Marks placement + onboarding complete (skips /signup, /placement). Override id via `HABLA_TEST_LEARNER_ID`.
   - `dev-mode` — turns on Developer tab in the Settings drawer
   - `tts-openai` — sets TTS voice to OpenAI gpt-4o-mini-tts
 - `--selector=<css>` — wait for this element to become visible before capturing (timeout 5s, capture-anyway-on-fail)
@@ -74,10 +74,12 @@ Read the returned PNG path with the Read tool. You'll see the image inline.
 
 Edit `SEEDS` in `scripts/screenshot.mjs` if you need new fixture state. The keys must match the localStorage keys read by `web/src/lib/api.ts` and `web/src/lib/dev-bus.ts`.
 
-## Limitations
+## What this tool does and doesn't cover
 
-- Headless Chromium — no real audio, no LiveKit room join. For audio-driven flows use the audio team's tool to inject sound, then call screenshot to capture the result.
-- The dev-mode seed enables the developer tab; if your change is in a session that hasn't started, you may also need to drive the orb / start-session button via `--click`.
-- The script auto-probes 5173..5180 for our SPA, but it does NOT start vite. Launch vite via `Bash(command: "npm run dev --prefix web", run_in_background: true)` if no port responds (run `npm run dev-stack -- up web` to see the exact command).
+- **Covers**: static layout, drawer state, route rendering, seeded localStorage flows. Mic-gated routes (/session, /placement) now work because we launch Chromium with `--use-fake-ui-for-media-stream` + `--use-fake-device-for-media-stream` and grant microphone permission on the context. The page mounts; it just never receives real audio.
+- **Doesn't cover**: anything that needs real STT, real assessor output, or real agent-side state. For those you want the audio harnesses in `docs/testing-without-mic.md`:
+  - `npm run test-bad-pron` — backend pronunciation feedback loop (~30s)
+  - `npm run test-visual-bad-pron` — full visual end-to-end including real Playwright + real LiveKit + real agent (~3 min, requires `HABLA_DEV_INJECT=1`)
+- The script auto-probes 5173..5180 (Vite) and 3000 (prod-bundle Express). Launch vite via `Bash(command: "npm run dev --prefix web", run_in_background: true)` if no port responds. `npm run dev-stack -- up web` prints the exact command.
 - "Live Session" panel needs `--inject-session` to render its populated branch (see the recipe above). Without it, you'll only ever see the placeholder.
-- The injected session uses *stub* data — it can verify rendering and layout, but obviously not real LiveKit state or pronunciation values.
+- The injected session uses *stub* data — it can verify rendering and layout, but obviously not real LiveKit state or pronunciation values. For real values use the visual harness.

@@ -14,7 +14,7 @@ The repo ships with skills and subagents that exist *specifically* to make agent
 ### Subagents (delegate via the Agent tool)
 
 - **`frontend-explorer`** — Read-only investigator that owns the web tree's structure (router, pages, state layers, the two parallel devBus-vs-RPC data paths). Use for "where does X live in the UI?" questions to save context. Returns ≤300-word focused reports.
-- **`verify-ui`** — After a UI change, drives `/screenshot` against affected routes, reads the PNGs itself, returns a verdict. Use when you've claimed a UI change is done and want closure without burning main-thread context.
+- **`verify-ui`** — After a code change, picks the right harness (screenshot, scenario-harness-direct, test-bad-pron, or test-visual-bad-pron), runs it, reads the output, returns a verdict. Use when you've claimed a change is done and want closure without burning main-thread context. Spans UI and backend.
 
 ### Hooks (automatic)
 
@@ -50,6 +50,17 @@ Or run `npm run dev-stack -- up [name]` — it prints the exact command for you.
 
 **Verifying a change inside the Developer-tab "Live Session" panel:**
 That panel short-circuits to an empty placeholder unless a real LiveKit room is joined. To render the populated branch in a headless screenshot, pass `--inject-session` — it stubs `room/agent/turns` via `window.__habla_devbus__` AFTER the drawer is open. Required for verifying any KvList row, recent-turn render, or pronunciation payload in that panel.
+
+**The four verification harnesses** (in order of cost — pick the cheapest that covers your change; see `docs/testing-without-mic.md` for the audio side):
+
+| Change touches… | Harness | Cost | Covers |
+|---|---|---|---|
+| TSX layout, styling, drawer rows | `npm run screenshot` | ~3s | Visual only, no audio, no backend |
+| controller, prompt-builder, compaction, prompts | `npx tsx scripts/scenario-harness-direct.ts` | ~17s | LLM + controller + FSRS, in-process |
+| `pronunciation/`, assessor, prompt-builder pron section | `npm run test-bad-pron` | ~30s | Real audio from `recordings/` → assessor → prompt → gpt-4o |
+| `agent.ts`, `token-server.ts`, end-to-end UI reflection | `npm run test-visual-bad-pron` | ~3 min | Full stack incl. real LiveKit, real React UI |
+
+Setup for the visual harness: `HABLA_DEV_INJECT=1` must be in `.env` *before* the agent process starts (tsx watch does NOT re-read env). All four processes must be running. `HEADED=1` to watch the browser.
 
 **"Where does X live?" before editing:**
 - Delegate to `frontend-explorer` (web) instead of grepping yourself when the answer needs ≥3 reads.

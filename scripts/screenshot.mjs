@@ -43,13 +43,20 @@ const repoRoot = resolve(__dirname, '..');
 
 // ── seed presets (localStorage entries applied before page boot) ────────
 // Keep these in sync with web/src/lib/api.ts + dev-bus.ts storage keys.
-const FAKE_LEARNER_ID = '00000000-0000-0000-0000-000000000aaa';
+//
+// Use the REAL seeded learner id (matches test-visual-bad-pronunciation.mjs and
+// the post-`test-evolution` Postgres seed). A fake id like ...aaa would 404 on
+// /api/learner/<id>, which spams the console and breaks routes that hit /api
+// (notably /session, /home). Override via HABLA_TEST_LEARNER_ID env if you
+// want a different fixture.
+const REAL_LEARNER_ID = process.env.HABLA_TEST_LEARNER_ID || '00000000-0000-0000-0000-000000000002';
 const SEEDS = {
-  // Drops a fake "signed-in" learner with onboarding flags set so /session
-  // and /home don't bounce to /signup or /placement.
+  // Drops a "signed-in" learner with onboarding flags set so /session
+  // and /home don't bounce to /signup or /placement. Uses the real seeded id
+  // so /api/learner/<id> resolves.
   'signed-in': {
     habla_learner: JSON.stringify({
-      id: FAKE_LEARNER_ID,
+      id: REAL_LEARNER_ID,
       cefr_level: 'A2',
       profile: { name: 'Test Learner', email: 'test@example.com', daily_goal_minutes: 15, streak: 1 },
       placed: true,
@@ -150,18 +157,23 @@ async function probeBaseUrl() {
     console.error(`❌ --base-url ${u} doesn't look like our app: ${r.why}`);
     process.exit(3);
   }
-  const ports = [5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180];
+  // Probe both vite (5173..5180) and the token-server prod-bundle mode (:3000)
+  // — when web is built and served by Express, the SPA is on :3000 directly.
+  // See docs/testing-without-mic.md for the two stack modes.
+  const ports = [5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180, 3000];
   const tried = [];
   for (const port of ports) {
     const u = `http://127.0.0.1:${port}`;
     const r = await probeOne(u);
     tried.push(`${port}: ${r.ok ? 'OK' : r.why}`);
     if (r.ok) {
-      if (port !== 5173) console.error(`ℹ️  using ${u} (5173 didn't match; another worktree?)`);
+      if (port !== 5173) console.error(`ℹ️  using ${u} (5173 didn't match; another worktree or prod-bundle mode?)`);
       return u;
     }
   }
-  console.error(`❌ no AISpeaker SPA found on 5173..5180. Run \`npm run dev-stack -- up web\` first, or pass --base-url.`);
+  console.error(`❌ no AISpeaker SPA found on 5173..5180 or 3000. Launch one:`);
+  console.error(`   Bash(command: "npm run dev --prefix web", run_in_background: true)`);
+  console.error(`   or pass --base-url=http://127.0.0.1:<port>`);
   console.error(`   probes:\n     ${tried.join('\n     ')}`);
   process.exit(3);
 }
@@ -177,19 +189,35 @@ for (const k of seedKeys) {
 }
 
 // ── drive playwright ────────────────────────────────────────────────────
-const browser = await chromium.launch({ headless: true });
+// `--use-fake-*` are required for /session: Session.tsx calls
+// setMicrophoneEnabled(true) on connect; without these flags Chromium's
+// getUserMedia denies and the SPA shows "Mic error" instead of mounting.
+// See docs/testing-without-mic.md "Headless Chromium has no microphone".
+const browser = await chromium.launch({
+  headless: true,
+  args: [
+    '--use-fake-ui-for-media-stream',
+    '--use-fake-device-for-media-stream',
+  ],
+});
 const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
+await ctx.grantPermissions(['microphone'], { origin: baseUrl });
 const page = await ctx.newPage();
 
 // Pipe console errors to our stderr so test failures show up in the screenshot stdout.
-// Filter the noise floor: in this app, /api/* calls 404 in bulk when the token-server
-// isn't running, and that floods stdout. Collapse into a single summary line.
+// Filter the known noise floor:
+//   • /api/* 404 storms when token-server is down or learner id is fake
+//   • ERR_INSUFFICIENT_RESOURCES storms from Session.tsx's mic-permission retry
+//     loop in Chromium under load (benign — see docs/testing-without-mic.md)
+// Both collapse into single summary lines so real errors stay readable.
 page.on('pageerror', (e) => console.error(`[page] error: ${e.message}`));
 let resource404Count = 0;
+let resourceErrCount = 0;
 page.on('console', (m) => {
   if (m.type() !== 'error') return;
   const text = m.text();
   if (/Failed to load resource.*404/.test(text)) { resource404Count++; return; }
+  if (/ERR_INSUFFICIENT_RESOURCES|net::ERR_/.test(text)) { resourceErrCount++; return; }
   console.error(`[page] console.error: ${text}`);
 });
 
@@ -292,7 +320,8 @@ await page.screenshot({ path: outPath, fullPage: !!args['full-page'] });
 const elapsedMs = Date.now() - navStarted;
 await browser.close();
 
-if (resource404Count > 0) console.error(`(${resource404Count} resource 404s suppressed — token-server likely down)`);
+if (resource404Count > 0) console.error(`(${resource404Count} resource 404s suppressed — token-server likely down or learner id doesn't resolve)`);
+if (resourceErrCount > 0) console.error(`(${resourceErrCount} net::ERR_* suppressed — typically Chromium's getUserMedia retry loop, benign)`);
 console.error(`📸 captured ${url} (${elapsedMs}ms) → ${outPath}`);
 // stdout: just the path, easy for callers to grab the last line
 console.log(outPath);
