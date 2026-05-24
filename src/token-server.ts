@@ -190,6 +190,15 @@ app.get('/api/token', async (req: Request, res: Response) => {
     ttsProvider = entry.provider;
     ttsVoice = entry.voice;
   }
+  // STT engine for this session — assemblyai (default) or deepgram. Picked
+  // in the Settings drawer's Developer tab; passed through dispatch metadata
+  // and consumed in agent.ts createStt(). Validated against a fixed allowlist
+  // so an unrecognized value just falls back silently to the env default
+  // rather than crashing session boot.
+  const sttRaw = (req.query.stt as string) || '';
+  const stt =
+    sttRaw === 'assemblyai' || sttRaw === 'deepgram' ? sttRaw : '';
+
   // Session mode — 'placement' for the post-signup calibration conversation,
   // anything else (or absent) is a normal tutoring session. Rides in dispatch
   // metadata so the agent picks the calibration controller + placement prompt.
@@ -205,6 +214,7 @@ app.get('/api/token', async (req: Request, res: Response) => {
     if (tts) meta.tts = tts;
     if (ttsProvider) meta.ttsProvider = ttsProvider;
     if (ttsVoice) meta.ttsVoice = ttsVoice;
+    if (stt) meta.stt = stt;
     if (mode) meta.mode = mode;
     const metadata = Object.keys(meta).length ? JSON.stringify(meta) : '';
     const d = await dispatchClient.createDispatch(room, SOFIA_AGENT_NAME, {
@@ -214,7 +224,7 @@ app.get('/api/token', async (req: Request, res: Response) => {
       `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} ` +
         `(id=${d.id}, learnerId=${learnerId || '∅'}, ` +
         `ttsProvider=${ttsProvider || '∅'}, ttsVoice=${ttsVoice || '∅'}, ` +
-        `legacy_tts=${tts || '∅'}, mode=${mode || 'normal'})`,
+        `legacy_tts=${tts || '∅'}, stt=${stt || '∅'}, mode=${mode || 'normal'})`,
     );
   } catch (err) {
     console.warn(`[token-server] dispatch failed for room ${room}:`, err);

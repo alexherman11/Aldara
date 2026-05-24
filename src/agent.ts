@@ -191,8 +191,18 @@ const CARTESIA_VOICE_ID =
 // so we steer multilingual behavior via the `prompt` field per AssemblyAI's docs.
 // The Spanish vocabulary in `keytermsPrompt` biases away from common mistakes
 // observed in earlier sessions ("Functionar", "Acesa", "verdas", etc.).
-function createStt() {
-  const provider = (process.env.STT_PROVIDER || 'assemblyai').toLowerCase();
+//
+// Precedence (highest first):
+//   1. dispatch metadata override (per-session pick from the web app's STT
+//      selector — see resolveSttChoice).
+//   2. STT_PROVIDER env var (server-side default).
+//   3. Hardcoded fallback to assemblyai.
+function createStt(override?: string) {
+  const provider = (
+    override ||
+    process.env.STT_PROVIDER ||
+    'assemblyai'
+  ).toLowerCase();
   if (provider === 'deepgram') {
     console.log('[agent] STT: deepgram nova-3 (language=multi)');
     return new deepgram.STT({ model: 'nova-3', language: 'multi' });
@@ -210,6 +220,24 @@ function createStt() {
     ],
     formatTurns: true,
   });
+}
+
+/**
+ * Read the per-session STT override from dispatch metadata. Mirrors
+ * resolveTtsChoice — same JSON, different field. Returns undefined when no
+ * stt field is present so createStt() falls through to its env default.
+ */
+function resolveSttChoice(ctx: JobContext): string | undefined {
+  const raw = ctx.job?.metadata;
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw);
+    const v = parsed?.stt;
+    if (typeof v === 'string' && v.length > 0) return v;
+  } catch {
+    // Older dispatch metadata was a bare learner id (not JSON). Ignore.
+  }
+  return undefined;
 }
 
 // Sofía's TTS persona — handed to providers that accept a style instruction
@@ -896,8 +924,12 @@ export default defineAgent({
           `voice=${ttsChoice.voice ?? '∅'} legacy=${ttsChoice.legacyChoice ?? '∅'}`,
       );
     }
+    const sttChoice = resolveSttChoice(ctx);
+    if (sttChoice) {
+      console.log(`[agent] STT override from dispatch metadata: ${sttChoice}`);
+    }
     const session = new voice.AgentSession<SessionContext>({
-      stt: createStt(),
+      stt: createStt(sttChoice),
       llm: new openai.LLM({ model: 'gpt-4o' }),
       tts: createTts(ttsChoice),
       vad: ctx.proc.userData.vad as silero.VAD,
@@ -971,16 +1003,42 @@ export default defineAgent({
       },
     );
 
-    // End session RPC — triggers compaction and returns pre/post diff
+    // End session RPC — triggers compaction and returns pre/post diff.
+    //
+    // Payload shape: `{ "compact"?: boolean }` (JSON). Default is true — i.e.
+    // a legacy empty payload still runs compaction, preserving the contract
+    // for older browser builds. When `compact: false`, we skip the LLM call,
+    // skip the FSRS writes, and return `{ok: true, skipped: true}` — useful
+    // when the learner wants to bail mid-session without burning a Claude
+    // request or polluting their cores with a half-finished conversation.
     ctx.room.localParticipant!.registerRpcMethod(
       'end_session',
-      async () => {
+      async (rpc) => {
+        let compact = true;
+        if (rpc.payload && rpc.payload.length > 0) {
+          try {
+            const parsed = JSON.parse(rpc.payload);
+            if (parsed && parsed.compact === false) compact = false;
+          } catch {
+            console.warn('[agent] end_session payload not JSON, defaulting to compact=true');
+          }
+        }
+
         console.log(
-          `[agent] End session requested. Turns: ${sessionContext.turnCount}, transcript entries: ${sessionContext.fullTranscript.length}`,
+          `[agent] End session requested (compact=${compact}). Turns: ${sessionContext.turnCount}, transcript entries: ${sessionContext.fullTranscript.length}`,
         );
 
-        // Stop listening during compaction
+        // Stop listening regardless of whether we compact.
         session.input.setAudioEnabled(false);
+
+        if (!compact) {
+          return JSON.stringify({
+            ok: true,
+            skipped: true,
+            transcriptLength: sessionContext.fullTranscript.length,
+            turnCount: sessionContext.turnCount,
+          });
+        }
 
         if (sessionContext.fullTranscript.length === 0) {
           return JSON.stringify({

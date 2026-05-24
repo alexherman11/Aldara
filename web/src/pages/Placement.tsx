@@ -17,6 +17,7 @@ import {
   getToken,
   patchStoredLearner,
   readStoredLearner,
+  readSttChoice,
   readTtsChoice,
 } from '@/lib/api';
 import { getTtsPreference } from '@/lib/tts-settings';
@@ -123,6 +124,7 @@ export default function Placement() {
           tts: readTtsChoice(),
           ttsProvider: ttsPref?.provider,
           ttsVoice: ttsPref?.voice,
+          stt: readSttChoice(),
         });
         token = t.token;
         url = t.url;
