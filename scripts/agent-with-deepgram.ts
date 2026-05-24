@@ -22,3 +22,6 @@ if (!passthrough.includes('dev') && !passthrough.includes('start')) {
 }
 
 await import('../src/agent.js');
+
+// Mark as a module so top-level await is legal (tsc TS1375).
+export {};
