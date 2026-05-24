@@ -50,6 +50,30 @@ export const TTS_CATALOG = {
     { id: 'Leda', label: 'Leda (Gemini)' },
     { id: 'Kore', label: 'Kore (Gemini)' },
   ],
+  // Google Cloud TTS — Chirp 3 HD voices. The @livekit/agents-plugin-google
+  // package doesn't expose Cloud TTS in 1.2.6, so the agent ships its own
+  // ChirpTTS adapter (src/chirp-tts.ts) that calls texttospeech.googleapis.com
+  // directly with the same GOOGLE_API_KEY used for Gemini. Voice ids are the
+  // exact Cloud TTS voice names — keep them in sync with what Google publishes
+  // at https://cloud.google.com/text-to-speech/docs/list-voices-and-types.
+  chirp: [
+    {
+      id: 'es-US-Chirp3-HD-Aoede',
+      label: 'Aoede (Chirp 3 HD, ES-US)',
+    },
+    {
+      id: 'es-US-Chirp3-HD-Achernar',
+      label: 'Achernar (Chirp 3 HD, ES-US)',
+    },
+    {
+      id: 'es-US-Chirp3-HD-Charon',
+      label: 'Charon (Chirp 3 HD, ES-US, deeper voice)',
+    },
+    {
+      id: 'es-US-Chirp3-HD-Kore',
+      label: 'Kore (Chirp 3 HD, ES-US)',
+    },
+  ],
 } as const satisfies Record<string, ReadonlyArray<TtsVoice>>;
 
 export type TtsProvider = keyof typeof TTS_CATALOG;

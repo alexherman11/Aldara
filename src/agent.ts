@@ -37,6 +37,7 @@ import * as silero from '@livekit/agents-plugin-silero';
 import * as assemblyai from '@livekit/agents-plugin-assemblyai';
 import * as google from '@livekit/agents-plugin-google';
 import * as inworld from '@livekit/agents-plugin-inworld';
+import { ChirpTTS } from './chirp-tts.js';
 
 import {
   loadSessionContext,
@@ -277,6 +278,28 @@ function createTts(
       voiceName,
       apiKey: process.env.GOOGLE_API_KEY,
       instructions: SOFIA_TTS_STYLE,
+    });
+  }
+
+  // Google Cloud TTS — Chirp 3 HD. Custom adapter in src/chirp-tts.ts because
+  // @livekit/agents-plugin-google (pinned at 1.2.6) only exposes the Gemini
+  // surface. Uses the same GOOGLE_API_KEY as the Gemini path; throws loudly
+  // at construction if the key is missing so we never silently degrade.
+  if (provider === 'chirp') {
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        '[agent] TTS provider=chirp requires GOOGLE_API_KEY. Set it in .env ' +
+          '(same key used for Gemini — enable the Cloud Text-to-Speech API on ' +
+          'the project at https://console.cloud.google.com/apis).',
+      );
+    }
+    const voiceName = voiceOverride || 'es-US-Chirp3-HD-Aoede';
+    console.log(`[agent] TTS: google cloud chirp-3-hd (voice=${voiceName})`);
+    return new ChirpTTS({
+      voiceName,
+      languageCode: 'es-US',
+      apiKey,
     });
   }
 

@@ -12,3 +12,10 @@ web/dist/
 
 # Local-only env files
 .env.local
+
+# log files from background dev tasks
+*.log
+.scenario.log
+
+# smoke-test artifacts
+chirp-out.wav
