@@ -22,7 +22,7 @@
     "@livekit/agents-plugin-assemblyai": "^1.2.8",
     "@livekit/agents-plugin-cartesia": "latest",
     "@livekit/agents-plugin-deepgram": "latest",
-    "@livekit/agents-plugin-google": "^1.2.6",
+    "@livekit/agents-plugin-google": "1.2.6",
     "@livekit/agents-plugin-inworld": "^1.2.6",
     "@livekit/agents-plugin-openai": "latest",
     "@livekit/agents-plugin-silero": "latest",

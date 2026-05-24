@@ -11,6 +11,7 @@ import {
   patchLearnerProfile,
   type LearnerProfile,
 } from './db/index.js';
+import { TTS_CATALOG, resolveCatalogEntry } from './tts-catalog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -163,9 +164,32 @@ app.get('/api/token', async (req: Request, res: Response) => {
   const room = (req.query.room as string) || `habla-${Date.now()}`;
   const identity = (req.query.identity as string) || 'learner';
   const learnerId = (req.query.learnerId as string) || '';
-  // Voice/TTS provider picked in the web app's Debug-tab selector. Rides
-  // along in dispatch metadata so the agent's createTts() honors it.
+  // Legacy single-string voice/provider id (cartesia | openai | google-flash |
+  // google-pro | inworld). Kept for back-compat with older browser sessions —
+  // the new picker uses ttsProvider+ttsVoice below.
   const tts = (req.query.tts as string) || '';
+  // New paired voice/provider params from the Settings drawer picker. Validated
+  // against TTS_CATALOG below; an invalid combination 400s so a typo in the
+  // query string surfaces immediately instead of silently falling back to
+  // Cartesia and leaving the user wondering why their voice didn't change.
+  const ttsProviderRaw = (req.query.ttsProvider as string) || '';
+  const ttsVoiceRaw = (req.query.ttsVoice as string) || '';
+  let ttsProvider = '';
+  let ttsVoice = '';
+  if (ttsProviderRaw || ttsVoiceRaw) {
+    const entry = resolveCatalogEntry(ttsProviderRaw, ttsVoiceRaw || undefined);
+    if (!entry) {
+      res.status(400).json({
+        error:
+          `Unknown TTS provider/voice combination: ` +
+          `provider=${ttsProviderRaw || '∅'} voice=${ttsVoiceRaw || '∅'}. ` +
+          `See /api/debug/config for the catalog.`,
+      });
+      return;
+    }
+    ttsProvider = entry.provider;
+    ttsVoice = entry.voice;
+  }
   // Session mode — 'placement' for the post-signup calibration conversation,
   // anything else (or absent) is a normal tutoring session. Rides in dispatch
   // metadata so the agent picks the calibration controller + placement prompt.
@@ -179,13 +203,18 @@ app.get('/api/token', async (req: Request, res: Response) => {
     const meta: Record<string, string> = {};
     if (learnerId) meta.learnerId = learnerId;
     if (tts) meta.tts = tts;
+    if (ttsProvider) meta.ttsProvider = ttsProvider;
+    if (ttsVoice) meta.ttsVoice = ttsVoice;
     if (mode) meta.mode = mode;
     const metadata = Object.keys(meta).length ? JSON.stringify(meta) : '';
     const d = await dispatchClient.createDispatch(room, SOFIA_AGENT_NAME, {
       metadata,
     });
     console.log(
-      `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} (id=${d.id}, learnerId=${learnerId || '∅'}, tts=${tts || '∅'}, mode=${mode || 'normal'})`,
+      `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} ` +
+        `(id=${d.id}, learnerId=${learnerId || '∅'}, ` +
+        `ttsProvider=${ttsProvider || '∅'}, ttsVoice=${ttsVoice || '∅'}, ` +
+        `legacy_tts=${tts || '∅'}, mode=${mode || 'normal'})`,
     );
   } catch (err) {
     console.warn(`[token-server] dispatch failed for room ${room}:`, err);
@@ -216,6 +245,20 @@ app.get('/api/livekit-url', (_req, res) => {
 // Exposes the live-system pieces the agent has wired up. Read at the time of
 // the request; doesn't depend on a session being active.
 app.get('/api/debug/config', (_req, res) => {
+  // Resolve the server-side default TTS string from env so the dashboard can
+  // tell the user what the agent will use when no per-session override is sent.
+  const envProvider = (process.env.TTS_PROVIDER || 'cartesia').toLowerCase();
+  let ttsLabel = 'cartesia sonic-3 (es)';
+  if (envProvider === 'openai') {
+    ttsLabel = `openai gpt-4o-mini-tts (voice=${process.env.OPENAI_TTS_VOICE || 'shimmer'})`;
+  } else if (envProvider === 'google') {
+    ttsLabel = `google gemini-2.5-flash-tts (voice=${process.env.GEMINI_TTS_VOICE || 'Aoede'})`;
+  } else if (envProvider === 'google-flash' || envProvider === 'google-pro') {
+    ttsLabel = `google ${envProvider === 'google-pro' ? 'gemini-2.5-pro-tts' : 'gemini-2.5-flash-tts'} (voice=${process.env.GEMINI_TTS_VOICE || 'Aoede'})`;
+  } else if (envProvider === 'inworld') {
+    ttsLabel = `inworld ${process.env.INWORLD_TTS_MODEL || 'inworld-tts-2'} (voice=${process.env.INWORLD_VOICE || 'Ashley'})`;
+  }
+
   res.json({
     livekit: {
       url: LIVEKIT_URL,
@@ -224,10 +267,7 @@ app.get('/api/debug/config', (_req, res) => {
     pipeline: {
       stt: 'deepgram nova-3 (multi)',
       llm: 'openai gpt-4o',
-      tts:
-        (process.env.TTS_PROVIDER || 'cartesia').toLowerCase() === 'openai'
-          ? `openai gpt-4o-mini-tts (voice=${process.env.OPENAI_TTS_VOICE || 'shimmer'})`
-          : 'cartesia sonic-3 (es)',
+      tts: ttsLabel,
       vad: 'silero',
       pronunciation:
         process.env.SPEECHACE_API_KEY
@@ -237,6 +277,12 @@ app.get('/api/debug/config', (_req, res) => {
             : 'segmented (local)',
       compaction_llm: 'anthropic claude (sonnet)',
       scheduler: 'ts-fsrs',
+    },
+    // Surfaced to the web app's Settings drawer so the voice picker can
+    // render provider→voice dropdowns without hardcoding the list twice.
+    tts: {
+      catalog: TTS_CATALOG,
+      server_default_provider: envProvider,
     },
     db: {
       url_masked: maskUrl(process.env.DATABASE_URL || ''),

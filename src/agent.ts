@@ -58,6 +58,9 @@ import {
   createAssessor,
   type PronunciationAssessor,
 } from './pronunciation/index.js';
+// TTS catalog is consumed by the token-server (validation + /debug/config)
+// and by the React picker. agent.ts doesn't need to import it directly — it
+// just receives the already-validated provider/voice pair via dispatch metadata.
 import { chunksToWav, chunkDurationSeconds, type PcmChunk } from './pronunciation/wav.js';
 import type { PronunciationAssessment } from './pronunciation/types.js';
 import { writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
@@ -215,16 +218,32 @@ const SOFIA_TTS_STYLE =
   'Natural conversational pace, gentle and clear, never rushed.';
 
 // Pick a TTS at runtime so we can flip providers without code edits when one
-// goes down or runs out of credits. `choice` is the per-session selection
-// from the web app's voice dropdown (see resolveTtsChoice); it falls back to
-// the TTS_PROVIDER env var and finally to Cartesia, the original Habla voice.
-// Recognized values: cartesia | openai | google-flash | google-pro | inworld
-function createTts(choice?: string) {
-  const provider = (choice || process.env.TTS_PROVIDER || 'cartesia')
-    .toLowerCase();
+// goes down or runs out of credits. Precedence (highest first):
+//   1. dispatch metadata (`override.provider` + `override.voice` from the
+//      web app's voice picker — see resolveTtsChoice)
+//   2. TTS_PROVIDER env var (server-side default)
+//   3. Hardcoded fallback to Cartesia, the original Habla voice.
+//
+// `override.legacyChoice` is the OLD single-string `tts` value still produced
+// by older browser sessions (cartesia | openai | google-flash | google-pro |
+// inworld). When present and `provider` is absent, it picks the branch.
+function createTts(
+  override?: { provider?: string; voice?: string; legacyChoice?: string },
+) {
+  // The new structured override beats everything except the env when both
+  // sides are empty. legacyChoice is a separate code path: it dispatches by
+  // the historical compound id (google-flash, google-pro, inworld) that the
+  // new catalog doesn't model.
+  const rawProvider =
+    override?.provider ||
+    override?.legacyChoice ||
+    process.env.TTS_PROVIDER ||
+    'cartesia';
+  const provider = rawProvider.toLowerCase();
+  const voiceOverride = override?.voice;
 
   if (provider === 'openai') {
-    const voice = (process.env.OPENAI_TTS_VOICE || 'shimmer') as
+    const voice = (voiceOverride || process.env.OPENAI_TTS_VOICE || 'shimmer') as
       | 'alloy'
       | 'ash'
       | 'ballad'
@@ -239,12 +258,36 @@ function createTts(choice?: string) {
     return new openai.TTS({ model: 'gpt-4o-mini-tts', voice });
   }
 
+  // New: the catalog-driven `google` provider. Uses the Gemini 2.5 Flash TTS
+  // surface from @livekit/agents-plugin-google (the only Google TTS in the
+  // 1.2.6 plugin). voiceOverride is a Gemini voice name (Achernar, Aoede,
+  // etc.) — see TTS_CATALOG.google. We keep the SOFIA_TTS_STYLE prompt so
+  // Sofía sounds consistent regardless of voice.
+  if (provider === 'google') {
+    const model = 'gemini-2.5-flash-tts';
+    // TODO: when the plugin exposes Cloud TTS (Chirp 3 HD / Studio voices),
+    // switch on a voice id like `es-US-Chirp3-HD-Achernar` here and route to
+    // the Cloud TTS surface. Until then we map to the Gemini voice name of
+    // the same suffix (Achernar, Aoede, …).
+    const voiceName = voiceOverride || process.env.GEMINI_TTS_VOICE || 'Aoede';
+    console.log(`[agent] TTS: google ${model} (voice=${voiceName})`);
+    return new google.beta.TTS({
+      model,
+      voiceName,
+      apiKey: process.env.GOOGLE_API_KEY,
+      instructions: SOFIA_TTS_STYLE,
+    });
+  }
+
+  // Legacy two-tier Gemini selection used by older sessions that picked the
+  // compound id from the previous voice dropdown. Kept so existing browser
+  // tabs don't break the agent if they reconnect with stale localStorage.
   if (provider === 'google-flash' || provider === 'google-pro') {
     const model =
       provider === 'google-pro'
         ? 'gemini-2.5-pro-tts'
         : 'gemini-2.5-flash-tts';
-    const voiceName = process.env.GEMINI_TTS_VOICE || 'Aoede';
+    const voiceName = voiceOverride || process.env.GEMINI_TTS_VOICE || 'Aoede';
     console.log(`[agent] TTS: google ${model} (voice=${voiceName})`);
     return new google.beta.TTS({
       model,
@@ -256,7 +299,7 @@ function createTts(choice?: string) {
 
   if (provider === 'inworld') {
     const model = process.env.INWORLD_TTS_MODEL || 'inworld-tts-2';
-    const voice = process.env.INWORLD_VOICE || 'Ashley';
+    const voice = voiceOverride || process.env.INWORLD_VOICE || 'Ashley';
     console.log(`[agent] TTS: inworld ${model} (voice=${voice})`);
     return new inworld.TTS({
       model,
@@ -265,10 +308,13 @@ function createTts(choice?: string) {
     });
   }
 
-  console.log(`[agent] TTS: cartesia sonic-3 (voice=${CARTESIA_VOICE_ID})`);
+  // Cartesia is the final fallback; the voice override is a Cartesia voice
+  // UUID (see TTS_CATALOG.cartesia).
+  const cartesiaVoice = voiceOverride || CARTESIA_VOICE_ID;
+  console.log(`[agent] TTS: cartesia sonic-3 (voice=${cartesiaVoice})`);
   return new cartesia.TTS({
     model: 'sonic-3',
-    voice: CARTESIA_VOICE_ID,
+    voice: cartesiaVoice,
     language: 'es',
   });
 }
@@ -303,23 +349,39 @@ function resolveLearnerId(ctx: JobContext): string {
 }
 
 /**
- * Read the TTS provider choice from dispatch metadata (`{"tts":"..."}`),
- * stamped by the token-server from the web app's voice selector. Returns
- * undefined when absent — createTts() then falls back to the env default.
+ * Read the TTS provider choice from dispatch metadata, stamped by the
+ * token-server from the web app's voice selector.
+ *
+ * The metadata may carry either the new structured form
+ *   { "ttsProvider": "google", "ttsVoice": "Achernar" }
+ * or the legacy compound-id form
+ *   { "tts": "google-flash" }
+ * Both are returned to createTts() — when both are present the structured
+ * form wins. Returns an empty object when no TTS fields are present.
  */
-function resolveTtsChoice(ctx: JobContext): string | undefined {
+function resolveTtsChoice(
+  ctx: JobContext,
+): { provider?: string; voice?: string; legacyChoice?: string } {
   const raw = ctx.job?.metadata;
-  if (typeof raw === 'string' && raw.length > 0) {
-    try {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.tts === 'string' && parsed.tts.length > 0) {
-        return parsed.tts;
-      }
-    } catch {
-      // metadata wasn't JSON — no tts choice to read
+  if (typeof raw !== 'string' || raw.length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: { provider?: string; voice?: string; legacyChoice?: string } = {};
+    if (typeof parsed.ttsProvider === 'string' && parsed.ttsProvider.length > 0) {
+      out.provider = parsed.ttsProvider;
     }
+    if (typeof parsed.ttsVoice === 'string' && parsed.ttsVoice.length > 0) {
+      out.voice = parsed.ttsVoice;
+    }
+    if (typeof parsed.tts === 'string' && parsed.tts.length > 0) {
+      out.legacyChoice = parsed.tts;
+    }
+    return out;
+  } catch {
+    // metadata wasn't JSON — no tts choice to read
+    return {};
   }
-  return undefined;
 }
 
 /**
@@ -744,10 +806,17 @@ export default defineAgent({
       await lp.publishData(data, { topic, reliable: true });
     };
 
+    const ttsChoice = resolveTtsChoice(ctx);
+    if (ttsChoice.provider || ttsChoice.voice || ttsChoice.legacyChoice) {
+      console.log(
+        `[agent] TTS override from dispatch metadata: provider=${ttsChoice.provider ?? '∅'} ` +
+          `voice=${ttsChoice.voice ?? '∅'} legacy=${ttsChoice.legacyChoice ?? '∅'}`,
+      );
+    }
     const session = new voice.AgentSession<SessionContext>({
       stt: createStt(),
       llm: new openai.LLM({ model: 'gpt-4o' }),
-      tts: createTts(resolveTtsChoice(ctx)),
+      tts: createTts(ttsChoice),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
       turnHandling: {
