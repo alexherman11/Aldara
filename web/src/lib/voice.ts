@@ -151,3 +151,31 @@ export function findAgentIdentity(room: Room): string | null {
   }
   return null;
 }
+
+/**
+ * LiveKit data-channel topic for the placement calibration debug stream.
+ * Backend agent publishes one of these after every calibration eval.
+ */
+export const PLACEMENT_CALIBRATION_TOPIC = 'placement_calibration';
+
+export type CefrLevel = 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+
+/**
+ * Mirror of PlacementCalibrationSnapshot in src/agent.ts. The bundler can't
+ * import backend types directly, so we keep a duplicate here — keep the two
+ * shapes in sync.
+ */
+export interface PlacementCalibrationSnapshot {
+  /** 1-based completed learner turn number this snapshot corresponds to. */
+  turnIndex: number;
+  /** Tutor's current target English fraction (0..1). */
+  ratio: number;
+  /** Nearest CEFR bucket to `ratio`. */
+  cefr: CefrLevel;
+  /** Calibrator confidence in the latest demonstrated-ratio estimate (0..1). */
+  confidence: number;
+  /** Self-marked starting ratio — constant for the duration of placement. */
+  markedRatio: number;
+  /** ≤80 chars of the latest learner utterance, for debug context. */
+  learnerSnippet?: string;
+}

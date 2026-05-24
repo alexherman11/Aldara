@@ -52,6 +52,7 @@ import {
   evaluateEdge,
   evaluateCalibrationTurn,
   finalizePlacement,
+  ratioToCefr,
   type ControllerState,
 } from './difficulty-controller.js';
 import {
@@ -672,6 +673,11 @@ class SofiaAgent extends voice.Agent {
           // Placement: the calibration controller converges the placement
           // target toward the learner's demonstrated level.
           await evaluateCalibrationTurn(this.ctx, this.controllerState);
+          // Push a live calibration snapshot to the web client so the Placement
+          // debug bar can render the current ratio, CEFR, and confidence the
+          // instant the classifier returns. Best-effort: a failed publish must
+          // never interfere with the placement flow.
+          this.publishCalibrationSnapshot(turnNumber);
         } else {
           const tasks: Promise<void>[] = [
             evaluateTurn(this.ctx, this.controllerState),
@@ -704,6 +710,60 @@ class SofiaAgent extends voice.Agent {
       }
     })();
   }
+
+  /**
+   * Best-effort live snapshot of the calibration controller, broadcast over the
+   * LiveKit data channel under topic "placement_calibration". The Placement
+   * page renders this as a live debug bar showing where calibration is sitting
+   * after the most recent learner turn. Wrapped in try/catch — placement must
+   * continue cleanly even if publishData fails.
+   */
+  private publishCalibrationSnapshot(turnIndex: number): void {
+    try {
+      const state = this.controllerState;
+      const lastCalib =
+        state.calibration_turns[state.calibration_turns.length - 1];
+      // Find the last learner utterance for a short context snippet.
+      let learnerSnippet: string | undefined;
+      for (let i = this.ctx.fullTranscript.length - 1; i >= 0; i--) {
+        const e = this.ctx.fullTranscript[i];
+        if (e.role === 'learner' && e.text) {
+          learnerSnippet = e.text.length > 80 ? e.text.slice(0, 77) + '…' : e.text;
+          break;
+        }
+      }
+      const ratio = state.current_ratio_target;
+      const payload: PlacementCalibrationSnapshot = {
+        turnIndex,
+        ratio,
+        cefr: ratioToCefr(ratio) as PlacementCalibrationSnapshot['cefr'],
+        confidence: lastCalib?.confidence ?? 0,
+        markedRatio: state.marked_ratio,
+        learnerSnippet,
+      };
+      const encoded = new TextEncoder().encode(JSON.stringify(payload));
+      // Fire-and-forget: don't await — placement flow must not depend on this.
+      void this.publishToRoom?.(encoded, 'placement_calibration').catch((err) => {
+        console.warn('[calibration] publish to web failed:', err);
+      });
+    } catch (err) {
+      console.warn('[calibration] snapshot build failed:', err);
+    }
+  }
+}
+
+/**
+ * Live calibration snapshot payload — duplicated on the web side in
+ * web/src/lib/voice.ts because the bundler can't import backend types
+ * directly. Keep the two shapes in sync.
+ */
+export interface PlacementCalibrationSnapshot {
+  turnIndex: number;
+  ratio: number;
+  cefr: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+  confidence: number;
+  markedRatio: number;
+  learnerSnippet?: string;
 }
 
 export default defineAgent({

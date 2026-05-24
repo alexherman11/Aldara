@@ -21,13 +21,16 @@ import {
 } from '@/lib/api';
 import {
   PARTICIPANT_IDENTITY,
+  PLACEMENT_CALIBRATION_TOPIC,
   agentStateToOrb,
   bubbleText,
   findAgentIdentity,
   mergeSegments,
   type Msg,
   type OrbState,
+  type PlacementCalibrationSnapshot,
 } from '@/lib/voice';
+import { PlacementCalibrationBar } from '@/components/PlacementCalibrationBar';
 
 /** Total placement length, and how long before the end Sofía is cued to wrap. */
 const PLACEMENT_SECONDS = 300;
@@ -60,6 +63,11 @@ export default function Placement() {
   const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(PLACEMENT_SECONDS);
   const [result, setResult] = useState<PlacementResult | null>(null);
+  // Per-turn calibration snapshots from the backend agent. Append-only — we
+  // keep the full history so the bar's sparkline can show the trajectory.
+  const [calibrationHistory, setCalibrationHistory] = useState<
+    PlacementCalibrationSnapshot[]
+  >([]);
 
   const roomRef = useRef<Room | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -408,6 +416,25 @@ export default function Placement() {
       },
     );
 
+    // Live calibration snapshots from the backend agent — one per learner
+    // turn, published right after the calibration LLM call returns. Drives
+    // the PlacementCalibrationBar debug card.
+    room.on(
+      RoomEvent.DataReceived,
+      (payload: Uint8Array, _participant?, _kind?, topic?: string) => {
+        if (topic !== PLACEMENT_CALIBRATION_TOPIC) return;
+        try {
+          const data = JSON.parse(
+            new TextDecoder().decode(payload),
+          ) as PlacementCalibrationSnapshot;
+          if (typeof data?.ratio !== 'number') return;
+          setCalibrationHistory((prev) => [...prev, data]);
+        } catch (err) {
+          console.warn('calibration payload parse failed:', err);
+        }
+      },
+    );
+
     room.on(RoomEvent.Connected, () => {
       for (const [, p] of room.remoteParticipants) {
         if (p.attributes?.['lk.agent.state']) {
@@ -534,6 +561,18 @@ export default function Placement() {
         </AnimatePresence>
       </div>
 
+      {/* Debug — live calibration bar. Default-expanded; toggle to hide. */}
+      {phase !== 'error' && (
+        <DebugCalibrationCard
+          latest={
+            calibrationHistory.length > 0
+              ? calibrationHistory[calibrationHistory.length - 1]
+              : null
+          }
+          history={calibrationHistory}
+        />
+      )}
+
       {/* Bottom — orb + push-to-talk */}
       <div
         className="shrink-0 flex flex-col items-center pb-6 pt-2"
@@ -615,6 +654,48 @@ export default function Placement() {
               <Sparkles className="w-4 h-4 animate-pulse" />
               Finding your level…
             </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Debug calibration card ──────────────────────────────────────────
+// Collapsible card mounted in the live placement screen showing the
+// calibration controller's live state — ratio, CEFR, sparkline, latest
+// learner snippet. Default-expanded so we always see it during dev; tap the
+// header to collapse if it's in the way.
+
+function DebugCalibrationCard({
+  latest,
+  history,
+}: {
+  latest: PlacementCalibrationSnapshot | null;
+  history: PlacementCalibrationSnapshot[];
+}) {
+  const [expanded, setExpanded] = useState(true);
+  return (
+    <div
+      className="shrink-0 px-5 pt-2 pb-1"
+      data-testid="debug-calibration-card"
+    >
+      <div className="rounded-xl border border-border bg-card/60 backdrop-blur-sm shadow-sm">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
+          aria-expanded={expanded}
+        >
+          <span>Debug · Calibration</span>
+          <span className="text-[10px] opacity-60">
+            {expanded ? '▾' : '▸'}{' '}
+            {history.length > 0 ? `${history.length} turns` : 'no data'}
+          </span>
+        </button>
+        {expanded && (
+          <div className="px-3 pb-3">
+            <PlacementCalibrationBar latest={latest} history={history} />
           </div>
         )}
       </div>
