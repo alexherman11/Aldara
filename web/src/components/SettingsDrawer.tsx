@@ -33,6 +33,7 @@ import {
   writeDevMode,
   type DevSnapshot,
 } from '@/lib/dev-bus';
+import { TtsSettings } from '@/components/TtsSettings';
 
 type Tab = 'profile' | 'progress' | 'developer';
 
@@ -313,6 +314,10 @@ function DeveloperTab({
                 ['Scheduler', config.pipeline.scheduler],
               ]}
             />
+            <TtsSettings />
+            {/* Legacy single-string voice picker. Kept for back-compat with
+                older browser tabs that wrote into the `tts` query param.
+                The new TtsSettings above takes precedence when both are set. */}
             <VoiceSelectorInline />
             <KvList
               rows={[

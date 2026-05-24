@@ -14,6 +14,7 @@ import {
   type TranscriptionSegment,
 } from 'livekit-client';
 import { getToken, readStoredLearner, readTtsChoice } from '@/lib/api';
+import { getTtsPreference } from '@/lib/tts-settings';
 import { devBus } from '@/lib/dev-bus';
 
 const PARTICIPANT_IDENTITY = 'learner';
@@ -190,10 +191,16 @@ export default function Session() {
       let roomName: string;
       try {
         roomName = `habla-${learnerId.slice(0, 8)}-${Date.now()}`;
+        // Pull both the legacy single-string voice id and the new paired
+        // provider/voice pref. Backend prefers the paired form when both
+        // are present, so the new TtsSettings picker wins seamlessly.
+        const ttsPref = getTtsPreference();
         const t = await getToken({
           learnerId,
           room: roomName,
           tts: readTtsChoice(),
+          ttsProvider: ttsPref?.provider,
+          ttsVoice: ttsPref?.voice,
         });
         token = t.token;
         url = t.url;

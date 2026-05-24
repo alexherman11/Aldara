@@ -21,6 +21,10 @@ tools/livekit/LICENSE
 *.log
 *.log.err
 .logs/
+.scenario.log
 
 # Claude Code worktrees — never committed
 .claude/worktrees/
+
+# Smoke-test artifacts
+chirp-out.wav

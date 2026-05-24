@@ -26,6 +26,13 @@ const SOFIA_PERSONA = readFileSync(
   'utf8',
 ).trim();
 
+// Placement-mode mission — the calibration conversation arc. Loaded once,
+// editable without recompile, same as the base persona.
+const PLACEMENT_PERSONA = readFileSync(
+  join(__dirname, 'prompts', 'placement-persona.txt'),
+  'utf8',
+).trim();
+
 const DEFAULT_LEARNER_PROFILE =
   'This is a new learner. Start by asking about their interests and why they want to learn Spanish.';
 
@@ -60,6 +67,17 @@ export function buildSystemPrompt(
 
   // 2. Sofía persona + code-switching technique
   sections.push(SOFIA_PERSONA);
+
+  // Placement mode: a focused calibration script replaces the normal
+  // game-plan / learner-profile / FSRS / pronunciation sections. The base
+  // persona above still applies — placement is the same Sofía, just listening.
+  if (ctx.mode === 'placement') {
+    sections.push(PLACEMENT_PERSONA);
+    if (opts.controllerState) {
+      sections.push(buildControllerPromptSection(opts.controllerState));
+    }
+    return sections.join('\n\n');
+  }
 
   // 3. Tutor game plan (only when tutor core has evolved past seed)
   const teachingNarrative = ctx.tutorCore?.teaching_narrative?.trim();

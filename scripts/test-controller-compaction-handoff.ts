@@ -104,6 +104,7 @@ async function main() {
 
   // Signal 1: controller says learner is COASTING — wants more Spanish (lower English ratio)
   const coastingState: ControllerState = {
+    mode: 'normal',
     current_ratio_target: 0.55,
     edge_state: 'coasting',
     last_turn_reason: 'Learner producing complex Spanish without effort.',
@@ -111,10 +112,14 @@ async function main() {
     last_evaluated_turn: 4,
     last_edge_check_turn: 4,
     recent_assessments: [],
+    marked_ratio: 0.55,
+    calibration_turns: [],
+    calibration_step_count: 0,
   };
 
   // Signal 2: controller says learner is OVERWHELMED — wants more English (higher English ratio)
   const overwhelmedState: ControllerState = {
+    mode: 'normal',
     current_ratio_target: 0.92,
     edge_state: 'overwhelmed',
     last_turn_reason: 'Learner expressing fatigue, frequent English fallback.',
@@ -122,6 +127,9 @@ async function main() {
     last_evaluated_turn: 4,
     last_edge_check_turn: 4,
     recent_assessments: [],
+    marked_ratio: 0.92,
+    calibration_turns: [],
+    calibration_step_count: 0,
   };
 
   console.log('── Run A: controller signals COASTING (target 0.55) ──');

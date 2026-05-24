@@ -54,9 +54,10 @@ export default function Signup() {
         id: learner.id,
         profile: learner.profile,
         cefr_level: learner.cefr_level,
+        placed: false,
         onboarded: false,
       });
-      setLocation('/assessment');
+      setLocation('/placement');
     } catch (err) {
       console.error('Signup failed:', err);
       setError(err instanceof Error ? err.message : String(err));
@@ -204,7 +205,7 @@ export default function Signup() {
         </div>
 
         <p className="mt-4 text-xs text-muted-foreground text-center">
-          Sofía will run a short assessment to understand your level.
+          Next, a short conversation with Sofía to find your level.
         </p>
       </div>
     </div>

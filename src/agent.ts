@@ -37,20 +37,32 @@ import * as silero from '@livekit/agents-plugin-silero';
 import * as assemblyai from '@livekit/agents-plugin-assemblyai';
 import * as google from '@livekit/agents-plugin-google';
 import * as inworld from '@livekit/agents-plugin-inworld';
+import { ChirpTTS } from './chirp-tts.js';
 
-import { loadSessionContext, type SessionContext } from './session-context.js';
+import {
+  loadSessionContext,
+  type SessionContext,
+  type SessionMode,
+} from './session-context.js';
 import { buildSystemPrompt } from './prompt-builder.js';
 import { runCompaction } from './compaction.js';
+import { persistPlacement } from './placement.js';
 import {
   initControllerState,
   evaluateTurn,
   evaluateEdge,
+  evaluateCalibrationTurn,
+  finalizePlacement,
+  ratioToCefr,
   type ControllerState,
 } from './difficulty-controller.js';
 import {
   createAssessor,
   type PronunciationAssessor,
 } from './pronunciation/index.js';
+// TTS catalog is consumed by the token-server (validation + /debug/config)
+// and by the React picker. agent.ts doesn't need to import it directly — it
+// just receives the already-validated provider/voice pair via dispatch metadata.
 import { chunksToWav, chunkDurationSeconds, type PcmChunk } from './pronunciation/wav.js';
 import type { PronunciationAssessment } from './pronunciation/types.js';
 import { writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
@@ -208,16 +220,32 @@ const SOFIA_TTS_STYLE =
   'Natural conversational pace, gentle and clear, never rushed.';
 
 // Pick a TTS at runtime so we can flip providers without code edits when one
-// goes down or runs out of credits. `choice` is the per-session selection
-// from the web app's voice dropdown (see resolveTtsChoice); it falls back to
-// the TTS_PROVIDER env var and finally to Cartesia, the original Habla voice.
-// Recognized values: cartesia | openai | google-flash | google-pro | inworld
-function createTts(choice?: string) {
-  const provider = (choice || process.env.TTS_PROVIDER || 'cartesia')
-    .toLowerCase();
+// goes down or runs out of credits. Precedence (highest first):
+//   1. dispatch metadata (`override.provider` + `override.voice` from the
+//      web app's voice picker — see resolveTtsChoice)
+//   2. TTS_PROVIDER env var (server-side default)
+//   3. Hardcoded fallback to Cartesia, the original Habla voice.
+//
+// `override.legacyChoice` is the OLD single-string `tts` value still produced
+// by older browser sessions (cartesia | openai | google-flash | google-pro |
+// inworld). When present and `provider` is absent, it picks the branch.
+function createTts(
+  override?: { provider?: string; voice?: string; legacyChoice?: string },
+) {
+  // The new structured override beats everything except the env when both
+  // sides are empty. legacyChoice is a separate code path: it dispatches by
+  // the historical compound id (google-flash, google-pro, inworld) that the
+  // new catalog doesn't model.
+  const rawProvider =
+    override?.provider ||
+    override?.legacyChoice ||
+    process.env.TTS_PROVIDER ||
+    'cartesia';
+  const provider = rawProvider.toLowerCase();
+  const voiceOverride = override?.voice;
 
   if (provider === 'openai') {
-    const voice = (process.env.OPENAI_TTS_VOICE || 'shimmer') as
+    const voice = (voiceOverride || process.env.OPENAI_TTS_VOICE || 'shimmer') as
       | 'alloy'
       | 'ash'
       | 'ballad'
@@ -232,12 +260,58 @@ function createTts(choice?: string) {
     return new openai.TTS({ model: 'gpt-4o-mini-tts', voice });
   }
 
+  // New: the catalog-driven `google` provider. Uses the Gemini 2.5 Flash TTS
+  // surface from @livekit/agents-plugin-google (the only Google TTS in the
+  // 1.2.6 plugin). voiceOverride is a Gemini voice name (Achernar, Aoede,
+  // etc.) — see TTS_CATALOG.google. We keep the SOFIA_TTS_STYLE prompt so
+  // Sofía sounds consistent regardless of voice.
+  if (provider === 'google') {
+    const model = 'gemini-2.5-flash-tts';
+    // TODO: when the plugin exposes Cloud TTS (Chirp 3 HD / Studio voices),
+    // switch on a voice id like `es-US-Chirp3-HD-Achernar` here and route to
+    // the Cloud TTS surface. Until then we map to the Gemini voice name of
+    // the same suffix (Achernar, Aoede, …).
+    const voiceName = voiceOverride || process.env.GEMINI_TTS_VOICE || 'Aoede';
+    console.log(`[agent] TTS: google ${model} (voice=${voiceName})`);
+    return new google.beta.TTS({
+      model,
+      voiceName,
+      apiKey: process.env.GOOGLE_API_KEY,
+      instructions: SOFIA_TTS_STYLE,
+    });
+  }
+
+  // Google Cloud TTS — Chirp 3 HD. Custom adapter in src/chirp-tts.ts because
+  // @livekit/agents-plugin-google (pinned at 1.2.6) only exposes the Gemini
+  // surface. Uses the same GOOGLE_API_KEY as the Gemini path; throws loudly
+  // at construction if the key is missing so we never silently degrade.
+  if (provider === 'chirp') {
+    const apiKey = process.env.GOOGLE_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        '[agent] TTS provider=chirp requires GOOGLE_API_KEY. Set it in .env ' +
+          '(same key used for Gemini — enable the Cloud Text-to-Speech API on ' +
+          'the project at https://console.cloud.google.com/apis).',
+      );
+    }
+    const voiceName = voiceOverride || 'es-US-Chirp3-HD-Aoede';
+    console.log(`[agent] TTS: google cloud chirp-3-hd (voice=${voiceName})`);
+    return new ChirpTTS({
+      voiceName,
+      languageCode: 'es-US',
+      apiKey,
+    });
+  }
+
+  // Legacy two-tier Gemini selection used by older sessions that picked the
+  // compound id from the previous voice dropdown. Kept so existing browser
+  // tabs don't break the agent if they reconnect with stale localStorage.
   if (provider === 'google-flash' || provider === 'google-pro') {
     const model =
       provider === 'google-pro'
         ? 'gemini-2.5-pro-tts'
         : 'gemini-2.5-flash-tts';
-    const voiceName = process.env.GEMINI_TTS_VOICE || 'Aoede';
+    const voiceName = voiceOverride || process.env.GEMINI_TTS_VOICE || 'Aoede';
     console.log(`[agent] TTS: google ${model} (voice=${voiceName})`);
     return new google.beta.TTS({
       model,
@@ -249,7 +323,7 @@ function createTts(choice?: string) {
 
   if (provider === 'inworld') {
     const model = process.env.INWORLD_TTS_MODEL || 'inworld-tts-2';
-    const voice = process.env.INWORLD_VOICE || 'Ashley';
+    const voice = voiceOverride || process.env.INWORLD_VOICE || 'Ashley';
     console.log(`[agent] TTS: inworld ${model} (voice=${voice})`);
     return new inworld.TTS({
       model,
@@ -258,10 +332,13 @@ function createTts(choice?: string) {
     });
   }
 
-  console.log(`[agent] TTS: cartesia sonic-3 (voice=${CARTESIA_VOICE_ID})`);
+  // Cartesia is the final fallback; the voice override is a Cartesia voice
+  // UUID (see TTS_CATALOG.cartesia).
+  const cartesiaVoice = voiceOverride || CARTESIA_VOICE_ID;
+  console.log(`[agent] TTS: cartesia sonic-3 (voice=${cartesiaVoice})`);
   return new cartesia.TTS({
     model: 'sonic-3',
-    voice: CARTESIA_VOICE_ID,
+    voice: cartesiaVoice,
     language: 'es',
   });
 }
@@ -296,23 +373,57 @@ function resolveLearnerId(ctx: JobContext): string {
 }
 
 /**
- * Read the TTS provider choice from dispatch metadata (`{"tts":"..."}`),
- * stamped by the token-server from the web app's voice selector. Returns
- * undefined when absent — createTts() then falls back to the env default.
+ * Read the TTS provider choice from dispatch metadata, stamped by the
+ * token-server from the web app's voice selector.
+ *
+ * The metadata may carry either the new structured form
+ *   { "ttsProvider": "google", "ttsVoice": "Achernar" }
+ * or the legacy compound-id form
+ *   { "tts": "google-flash" }
+ * Both are returned to createTts() — when both are present the structured
+ * form wins. Returns an empty object when no TTS fields are present.
  */
-function resolveTtsChoice(ctx: JobContext): string | undefined {
+function resolveTtsChoice(
+  ctx: JobContext,
+): { provider?: string; voice?: string; legacyChoice?: string } {
+  const raw = ctx.job?.metadata;
+  if (typeof raw !== 'string' || raw.length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return {};
+    const out: { provider?: string; voice?: string; legacyChoice?: string } = {};
+    if (typeof parsed.ttsProvider === 'string' && parsed.ttsProvider.length > 0) {
+      out.provider = parsed.ttsProvider;
+    }
+    if (typeof parsed.ttsVoice === 'string' && parsed.ttsVoice.length > 0) {
+      out.voice = parsed.ttsVoice;
+    }
+    if (typeof parsed.tts === 'string' && parsed.tts.length > 0) {
+      out.legacyChoice = parsed.tts;
+    }
+    return out;
+  } catch {
+    // metadata wasn't JSON — no tts choice to read
+    return {};
+  }
+}
+
+/**
+ * Read the session mode from dispatch metadata (`{"mode":"placement"}`),
+ * stamped by the token-server when the web app opens the post-signup
+ * placement. Anything else (or absent metadata) is a normal session.
+ */
+function resolveMode(ctx: JobContext): SessionMode {
   const raw = ctx.job?.metadata;
   if (typeof raw === 'string' && raw.length > 0) {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.tts === 'string' && parsed.tts.length > 0) {
-        return parsed.tts;
-      }
+      if (parsed && parsed.mode === 'placement') return 'placement';
     } catch {
-      // metadata wasn't JSON — no tts choice to read
+      // metadata wasn't JSON — treat as a normal session
     }
   }
-  return undefined;
+  return 'normal';
 }
 
 /**
@@ -370,7 +481,12 @@ class SofiaAgent extends voice.Agent {
   private pttActive = false;
 
   constructor(sessionContext: SessionContext, assessor: PronunciationAssessor) {
-    const controllerState = initControllerState(sessionContext);
+    // Placement sessions drive the calibration controller — it opens the
+    // learner below their self-rated level and converges from there.
+    const controllerState = initControllerState(
+      sessionContext,
+      sessionContext.mode === 'placement' ? 'calibration' : 'normal',
+    );
     super({
       instructions: buildSystemPrompt(sessionContext, { controllerState }),
     });
@@ -455,6 +571,24 @@ class SofiaAgent extends voice.Agent {
   }
 
   override async onEnter() {
+    // Placement: open the calibration conversation in English. The example
+    // line is deliberately concrete — describing the greeting abstractly led
+    // gpt-4o to render the whole thing in Spanish.
+    if (this.ctx.mode === 'placement') {
+      this.session.generateReply({
+        instructions:
+          'This is the very first thing the learner hears. Speak it in ENGLISH — ' +
+          'real English sentences, NOT Spanish and NOT a Spanish translation of an ' +
+          'English idea. The only Spanish in this turn is the word "Hola" and your ' +
+          'own name. Say something close to: "Hola! I\'m Sofía, your Spanish tutor. ' +
+          "Let's just chat for a few minutes so I can get a feel for your Spanish — " +
+          "there's no test and nothing to get right, so talk however feels natural " +
+          'to you. To start — what made you want to learn Spanish?" Keep it that ' +
+          'short, warm, and in English.',
+      });
+      return;
+    }
+
     const isNewLearner =
       this.ctx.learnerCore.version === 0 &&
       this.ctx.learnerCore.session_trajectory.includes('No sessions yet');
@@ -609,21 +743,35 @@ class SofiaAgent extends voice.Agent {
     }
 
     const turnNumber = this.ctx.turnCount;
+    const isPlacement = this.ctx.mode === 'placement';
     const shouldEdgeCheck =
-      turnNumber > 0 && turnNumber % EDGE_CHECK_EVERY_N_TURNS === 0;
+      !isPlacement &&
+      turnNumber > 0 &&
+      turnNumber % EDGE_CHECK_EVERY_N_TURNS === 0;
 
     this.evalInFlight = true;
     const startedAt = Date.now();
 
     void (async () => {
       try {
-        const tasks: Promise<void>[] = [
-          evaluateTurn(this.ctx, this.controllerState),
-        ];
-        if (shouldEdgeCheck) {
-          tasks.push(evaluateEdge(this.ctx, this.controllerState));
+        if (isPlacement) {
+          // Placement: the calibration controller converges the placement
+          // target toward the learner's demonstrated level.
+          await evaluateCalibrationTurn(this.ctx, this.controllerState);
+          // Push a live calibration snapshot to the web client so the Placement
+          // debug bar can render the current ratio, CEFR, and confidence the
+          // instant the classifier returns. Best-effort: a failed publish must
+          // never interfere with the placement flow.
+          this.publishCalibrationSnapshot(turnNumber);
+        } else {
+          const tasks: Promise<void>[] = [
+            evaluateTurn(this.ctx, this.controllerState),
+          ];
+          if (shouldEdgeCheck) {
+            tasks.push(evaluateEdge(this.ctx, this.controllerState));
+          }
+          await Promise.all(tasks);
         }
-        await Promise.all(tasks);
 
         // Push the updated prompt so the NEXT tutor turn uses fresh ratio + directive.
         // LiveKit Agents JS 1.2 doesn't expose a public updateInstructions method;
@@ -638,7 +786,7 @@ class SofiaAgent extends voice.Agent {
 
         console.log(
           `[difficulty] eval cycle for turn ${turnNumber} done in ${Date.now() - startedAt}ms ` +
-            `(edge_check=${shouldEdgeCheck})`,
+            `(mode=${this.ctx.mode}, edge_check=${shouldEdgeCheck})`,
         );
       } catch (err) {
         console.warn('[agent] difficulty eval cycle failed:', err);
@@ -647,6 +795,60 @@ class SofiaAgent extends voice.Agent {
       }
     })();
   }
+
+  /**
+   * Best-effort live snapshot of the calibration controller, broadcast over the
+   * LiveKit data channel under topic "placement_calibration". The Placement
+   * page renders this as a live debug bar showing where calibration is sitting
+   * after the most recent learner turn. Wrapped in try/catch — placement must
+   * continue cleanly even if publishData fails.
+   */
+  private publishCalibrationSnapshot(turnIndex: number): void {
+    try {
+      const state = this.controllerState;
+      const lastCalib =
+        state.calibration_turns[state.calibration_turns.length - 1];
+      // Find the last learner utterance for a short context snippet.
+      let learnerSnippet: string | undefined;
+      for (let i = this.ctx.fullTranscript.length - 1; i >= 0; i--) {
+        const e = this.ctx.fullTranscript[i];
+        if (e.role === 'learner' && e.text) {
+          learnerSnippet = e.text.length > 80 ? e.text.slice(0, 77) + '…' : e.text;
+          break;
+        }
+      }
+      const ratio = state.current_ratio_target;
+      const payload: PlacementCalibrationSnapshot = {
+        turnIndex,
+        ratio,
+        cefr: ratioToCefr(ratio) as PlacementCalibrationSnapshot['cefr'],
+        confidence: lastCalib?.confidence ?? 0,
+        markedRatio: state.marked_ratio,
+        learnerSnippet,
+      };
+      const encoded = new TextEncoder().encode(JSON.stringify(payload));
+      // Fire-and-forget: don't await — placement flow must not depend on this.
+      void this.publishToRoom?.(encoded, 'placement_calibration').catch((err) => {
+        console.warn('[calibration] publish to web failed:', err);
+      });
+    } catch (err) {
+      console.warn('[calibration] snapshot build failed:', err);
+    }
+  }
+}
+
+/**
+ * Live calibration snapshot payload — duplicated on the web side in
+ * web/src/lib/voice.ts because the bundler can't import backend types
+ * directly. Keep the two shapes in sync.
+ */
+export interface PlacementCalibrationSnapshot {
+  turnIndex: number;
+  ratio: number;
+  cefr: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
+  confidence: number;
+  markedRatio: number;
+  learnerSnippet?: string;
 }
 
 export default defineAgent({
@@ -660,10 +862,15 @@ export default defineAgent({
     // Load session context from Postgres (seeds a new learner if needed).
     // learnerId comes from the dispatch metadata stamped by the token-server.
     const learnerId = resolveLearnerId(ctx);
-    console.log(`[agent] Loading session context for learner ${learnerId}`);
-    const sessionContext = await loadSessionContext(learnerId);
+    const mode = resolveMode(ctx);
     console.log(
-      `[agent] Learner loaded: core_version=${sessionContext.learnerCore.version}, ` +
+      `[agent] Loading session context for learner ${learnerId} (mode=${mode})`,
+    );
+    const sessionContext = await loadSessionContext(learnerId, mode);
+    console.log(
+      `[agent] Learner loaded: mode=${sessionContext.mode}, ` +
+        `marked_level=${sessionContext.markedCefrLevel ?? '∅'}, ` +
+        `core_version=${sessionContext.learnerCore.version}, ` +
         `tutor_version=${sessionContext.tutorCore.version}, ` +
         `fsrs_due=${sessionContext.fsrsDueItems.length}, ` +
         `session_id=${sessionContext.sessionId}`,
@@ -682,10 +889,17 @@ export default defineAgent({
       await lp.publishData(data, { topic, reliable: true });
     };
 
+    const ttsChoice = resolveTtsChoice(ctx);
+    if (ttsChoice.provider || ttsChoice.voice || ttsChoice.legacyChoice) {
+      console.log(
+        `[agent] TTS override from dispatch metadata: provider=${ttsChoice.provider ?? '∅'} ` +
+          `voice=${ttsChoice.voice ?? '∅'} legacy=${ttsChoice.legacyChoice ?? '∅'}`,
+      );
+    }
     const session = new voice.AgentSession<SessionContext>({
       stt: createStt(),
       llm: new openai.LLM({ model: 'gpt-4o' }),
-      tts: createTts(resolveTtsChoice(ctx)),
+      tts: createTts(ttsChoice),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
       turnHandling: {
@@ -803,6 +1017,66 @@ export default defineAgent({
       },
     );
 
+    // Placement wrap RPC — the web app fires this ~30s before the placement
+    // timer ends so Sofía gives a warm spoken close. No-op outside placement.
+    ctx.room.localParticipant!.registerRpcMethod(
+      'placement_wrap',
+      async () => {
+        if (sessionContext.mode !== 'placement') {
+          return JSON.stringify({ ok: false, error: 'not a placement session' });
+        }
+        session.generateReply({
+          instructions:
+            'The placement is wrapping up now. Give a warm, brief closing — mostly ' +
+            "in English — thanking the learner, telling them you've got a good feel " +
+            'for where to begin, and that the real conversations start now. Do not ' +
+            'say any level, number, or score out loud.',
+        });
+        return JSON.stringify({ ok: true });
+      },
+    );
+
+    // End placement RPC — finalizes the calibration, persists the calibrated
+    // level to the learner/tutor cores, and returns the placed level for the
+    // result card. Distinct from end_session: deterministic, no compaction LLM.
+    ctx.room.localParticipant!.registerRpcMethod(
+      'end_placement',
+      async () => {
+        console.log(
+          `[agent] End placement requested. Turns: ${sessionContext.turnCount}, ` +
+            `calibration steps: ${agent.controllerState.calibration_step_count}`,
+        );
+        session.input.setAudioEnabled(false);
+
+        if (sessionContext.mode !== 'placement') {
+          return JSON.stringify({
+            ok: false,
+            error: 'not a placement session',
+          });
+        }
+
+        try {
+          const result = finalizePlacement(agent.controllerState);
+          await persistPlacement(sessionContext, agent.controllerState, result);
+          return JSON.stringify({
+            ok: true,
+            placedLevel: result.cefr_level,
+            placedRatio: result.ratio,
+            markedLevel: sessionContext.markedCefrLevel ?? null,
+            confidence: result.confidence,
+            converged: result.converged,
+            calibrationTurns: result.calibration_turns,
+          });
+        } catch (err) {
+          console.error('[agent] persistPlacement failed:', err);
+          return JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+
     // Log state changes
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
       console.log(`[agent] State: ${ev.newState}`);
@@ -833,8 +1107,15 @@ export default defineAgent({
   },
 });
 
-// agentName="sofia" pins this worker behind a named dispatch — the scenario
-// harness creates explicit AgentDispatches per scenario room. The web app
-// uses an auto-dispatched anonymous worker when none is set, so we still
-// need a separate untagged worker (or explicit dispatch on connect) for that.
-cli.runApp(new ServerOptions({ agent: import.meta.filename, agentName: 'sofia' }));
+// agentName pins this worker behind a named dispatch — the scenario harness
+// creates explicit AgentDispatches per scenario room. It's env-configurable
+// (SOFIA_AGENT_NAME, default "sofia") so a second stack — e.g. a feature
+// worktree — can run its own agent under a distinct name on the same LiveKit
+// project without stealing dispatches from the primary one. The token-server
+// already reads the same env var when it creates dispatches.
+cli.runApp(
+  new ServerOptions({
+    agent: import.meta.filename,
+    agentName: process.env.SOFIA_AGENT_NAME || 'sofia',
+  }),
+);

@@ -23,6 +23,7 @@ const SUITES = [
   'scripts/test-segmented-sample-rate.ts',
   'scripts/test-prompt-builder.ts',
   'scripts/test-difficulty-math.ts',
+  'scripts/test-calibration-math.ts',
   'scripts/test-annotation-render.ts',
   'scripts/test-wav-roundtrip.ts',
 ];
