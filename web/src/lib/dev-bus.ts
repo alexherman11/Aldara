@@ -49,6 +49,9 @@ export type DevSnapshot = {
   turns: DevTurn[];
   lastPronunciation: DevPronunciation | null;
   ptt: DevPtt;
+  // Stamped when the agent first appears in the room — anchors the uptime
+  // counter shown in the Developer tab. Cleared on reset().
+  agentFirstSeenAt: number | null;
 };
 
 const EMPTY_SNAPSHOT: DevSnapshot = {
@@ -57,6 +60,7 @@ const EMPTY_SNAPSHOT: DevSnapshot = {
   turns: [],
   lastPronunciation: null,
   ptt: { capturing: false },
+  agentFirstSeenAt: null,
 };
 
 let snapshot: DevSnapshot = EMPTY_SNAPSHOT;
@@ -80,7 +84,11 @@ export const devBus = {
     emit();
   },
   setAgent(agent: DevAgentState) {
-    snapshot = { ...snapshot, agent };
+    snapshot = {
+      ...snapshot,
+      agent,
+      agentFirstSeenAt: snapshot.agentFirstSeenAt ?? agent.ts,
+    };
     emit();
   },
   recordTurn(turn: DevTurn) {
@@ -120,6 +128,13 @@ export const devBus = {
     emit();
   },
 };
+
+// Expose a snapshot getter on window for the Playwright visual harness so
+// it can read the current LiveKit roomName without scraping the DOM. No
+// effect unless something asks for it; safe to leave on in dev builds.
+if (typeof window !== 'undefined') {
+  (window as unknown as { __habla_devbus__: typeof devBus }).__habla_devbus__ = devBus;
+}
 
 // ── Dev-mode preference (persisted to localStorage) ───────────────────
 

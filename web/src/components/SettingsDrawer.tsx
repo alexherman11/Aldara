@@ -391,7 +391,16 @@ function DeveloperTab({
 }
 
 function LiveSession({ snapshot }: { snapshot: DevSnapshot }) {
-  const { room, agent, turns, lastPronunciation, ptt } = snapshot;
+  const { room, agent, turns, lastPronunciation, ptt, agentFirstSeenAt } = snapshot;
+
+  // Force a re-render every second so the uptime counter ticks without
+  // requiring devBus to fire spurious updates.
+  const [, forceTick] = useState(0);
+  useEffect(() => {
+    if (!agentFirstSeenAt) return;
+    const id = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [agentFirstSeenAt]);
 
   if (!room.roomName && !agent && turns.length === 0) {
     return (
@@ -415,6 +424,7 @@ function LiveSession({ snapshot }: { snapshot: DevSnapshot }) {
               ? `${agent.state} (${msAgo(agent.ts)})`
               : '—',
           ],
+          ['Session uptime', agentFirstSeenAt ? formatUptime(Date.now() - agentFirstSeenAt) : '—'],
           [
             'PTT',
             ptt.capturing
@@ -482,6 +492,13 @@ function msAgo(ts: number | undefined): string {
   if (diff < 1000) return `${diff}ms ago`;
   if (diff < 60_000) return `${Math.round(diff / 1000)}s ago`;
   return `${Math.round(diff / 60_000)}m ago`;
+}
+
+function formatUptime(ms: number): string {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m > 0 ? `${m}m ${s.toString().padStart(2, '0')}s` : `${s}s`;
 }
 
 function ArchitectureDiagram() {
