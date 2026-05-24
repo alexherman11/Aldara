@@ -9,7 +9,7 @@ The repo ships with skills and subagents that exist *specifically* to make agent
 ### Skills (invoke from main thread)
 
 - **`/screenshot`** — Drives headless Chromium against the local web app, returns a PNG path you can `Read`. Use it any time you've changed UI code. Supports localStorage seeds (`signed-in`, `dev-mode`, `tts-openai`) to skip past onboarding. See `.claude/skills/screenshot.md`.
-- **`/dev-stack`** — Manages the 4-process dev stack (`livekit`, `server`, `agent`, `web`) as *detached* processes with per-process logs. Use `npm run dev-stack -- status` before any UI work; `npm run dev-stack -- restart-agent` after editing `src/agent.ts` (no HMR). See `.claude/skills/dev-stack.md`.
+- **`/dev-stack`** — Status reporter for the 4-process dev stack (`livekit`, `server`, `agent`, `web`) with per-process log tails. Use `npm run dev-stack -- status` before any UI work. `up`/`restart-agent` print the right `Bash(..., run_in_background: true)` invocation rather than spawning (the Claude Code harness reaps anything spawned inside a sandboxed Bash call). See `.claude/skills/dev-stack.md`.
 
 ### Subagents (delegate via the Agent tool)
 
@@ -23,19 +23,38 @@ The repo ships with skills and subagents that exist *specifically* to make agent
 ## The canonical loops
 
 **Pure-frontend change (TSX, no agent edits):**
-1. Make the edit
-2. `npm run screenshot -- --route=<affected> --seed=signed-in[,dev-mode]`
-3. `Read` the PNG
-4. Done. Stop hook will surface any TS error you missed.
+1. `npm run dev-stack -- status` — confirm `web` is reachable. If not, launch it (see "starting processes" below).
+2. Make the edit.
+3. Screenshot the affected route:
+   ```
+   npm run screenshot -- --route=/session --seed=signed-in[,dev-mode] [--click=…] [--inject-session]
+   ```
+4. `Read` the PNG path the script prints (last line of stdout).
+5. Done. Stop hook will surface any TS error.
 
 **Backend change (src/agent.ts, src/prompts/*, src/pronunciation/*):**
-1. Make the edit
-2. `npm run dev-stack -- restart-agent`
-3. `npm run dev-stack -- tail agent 60` — confirm clean boot
-4. If audio-driven verification matters, hand to the audio agent. Otherwise screenshot the dev panel to confirm the new state surfaces.
+1. Make the edit.
+2. Kill the running agent (KillShell its background task, or PowerShell-kill `node.exe` whose `CommandLine` matches `src/agent.ts`).
+3. Relaunch:  `Bash(command: "npx tsx src/agent.ts dev", run_in_background: true)`
+4. `npm run dev-stack -- tail agent 60` — confirm clean boot.
+5. If audio-driven verification matters, hand to the audio agent. Otherwise screenshot the dev panel to confirm the new state surfaces.
+
+**Starting any process so it persists across tool calls:**
+The harness reaps anything spawned inside a sandboxed Bash call. Always use `run_in_background: true`:
+- web:     `Bash(command: "npm run dev --prefix web", run_in_background: true)`
+- server:  `Bash(command: "npx tsx src/token-server.ts", run_in_background: true)`
+- agent:   `Bash(command: "npx tsx src/agent.ts dev", run_in_background: true)`
+- livekit: `Bash(command: "node scripts/start-livekit.mjs", run_in_background: true)`
+
+Or run `npm run dev-stack -- up [name]` — it prints the exact command for you.
+
+**Verifying a change inside the Developer-tab "Live Session" panel:**
+That panel short-circuits to an empty placeholder unless a real LiveKit room is joined. To render the populated branch in a headless screenshot, pass `--inject-session` — it stubs `room/agent/turns` via `window.__habla_devbus__` AFTER the drawer is open. Required for verifying any KvList row, recent-turn render, or pronunciation payload in that panel.
 
 **"Where does X live?" before editing:**
 - Delegate to `frontend-explorer` (web) instead of grepping yourself when the answer needs ≥3 reads.
+
+**Stuck or circling?** If you notice you're spinning on a verification, lookup, or "is X actually true" question, stop and delegate it to an Agent (`frontend-explorer`, `verify-ui`, `Explore`, or `general-purpose`) with a sharp prompt — don't keep grinding in the main thread.
 
 ## Layout cheat-sheet
 
@@ -84,6 +103,7 @@ scripts/                 Test suites + tooling
 
 ## Don't
 
-- Don't run `npm run dev` for automation — use `dev-stack up`. The former ties processes together so you can't restart individually.
+- Don't run `npm run dev` from a sandboxed Bash call expecting it to persist. It dies when the call returns. Use `run_in_background: true` for each process individually.
+- Don't try to `detach`+`unref()` from inside a script — the harness reaps the process tree regardless. Always launch persistent things through Bash with `run_in_background: true`.
 - Don't add screenshots/PNGs to git — `.claude/screenshots/` is gitignored.
 - Don't widen `tsx` script invocations into `npm test` unless they're truly offline. Layer 1's whole point is that it runs without network.

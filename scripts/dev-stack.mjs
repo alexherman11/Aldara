@@ -9,11 +9,19 @@
  * the stack up?".
  *
  * Usage:
- *   npm run dev-stack -- up                # start whichever processes aren't running
+ *   npm run dev-stack -- up                # start whichever processes aren't already up
+ *   npm run dev-stack -- up web            # start just `web` (and only if not up)
+ *   npm run dev-stack -- up web server     # start a subset
  *   npm run dev-stack -- status            # ports + PIDs + last log lines, table view
  *   npm run dev-stack -- down              # kill everything we started
  *   npm run dev-stack -- restart-agent     # kill+respawn just the agent (most common loop)
  *   npm run dev-stack -- tail <name> [N]   # tail .<name>.log (N defaults to 60)
+ *
+ * Selective `up` is the right default when another agent or worktree owns part
+ * of the stack — e.g. they're running their own agent worker on port 7880 and
+ * you only need vite for a screenshot. `up` without args is convenient but can
+ * collide (spawning a 2nd agent worker registers as a duplicate sofia dispatcher
+ * and LiveKit will round-robin between them — usually not what you want).
  *
  * State is tracked in .claude/.dev-stack.pids.json — gitignored. Per-process
  * logs go to .<name>.log at repo root (already gitignored by `*.log`).
@@ -30,12 +38,18 @@ const STATE_DIR = join(repoRoot, '.claude');
 const STATE_FILE = join(STATE_DIR, '.dev-stack.pids.json');
 
 // One row per managed process. `port` may be 0 (no listening port — match by pid only).
+// `portRange` lists additional ports to probe for an existing instance — used by
+// `web` because vite cycles through 5173..5180 when worktrees collide on the
+// primary port. The first port in the range that responds wins.
 const PROCESSES = [
   { name: 'livekit', port: 7880, cmd: 'node',  args: ['scripts/start-livekit.mjs'] },
   { name: 'server',  port: 3000, cmd: 'npx',   args: ['tsx', 'src/token-server.ts'] },
   { name: 'agent',   port: 0,    cmd: 'npx',   args: ['tsx', 'src/agent.ts', 'dev'] },
-  { name: 'web',     port: 5173, cmd: 'npm',   args: ['run', 'dev', '--prefix', 'web'] },
+  { name: 'web',     port: 5173, cmd: 'npm',   args: ['run', 'dev', '--prefix', 'web'],
+    portRange: [5173, 5174, 5175, 5176, 5177, 5178, 5179, 5180] },
 ];
+
+function knownNames() { return PROCESSES.map((p) => p.name); }
 
 function readState() {
   if (!existsSync(STATE_FILE)) return {};
@@ -62,72 +76,97 @@ function probePort(port) {
   });
 }
 
-function logPath(name) { return join(repoRoot, `.${name}.log`); }
-
-function spawnProc(p) {
-  const fd = openSync(logPath(p.name), 'a');
-  // Note the start time so `status` can show how long it's been running.
-  const child = spawn(p.cmd, p.args, {
-    cwd: repoRoot,
-    detached: true,
-    stdio: ['ignore', fd, fd],
-    shell: process.platform === 'win32', // npm/npx on win32 are .cmd scripts
-    env: { ...process.env, FORCE_COLOR: '0' },
-  });
-  child.unref();
-  return child.pid;
+/** Return the first reachable port in the process's port range (or its primary), or 0. */
+async function findActivePort(p) {
+  const ports = p.portRange ?? (p.port ? [p.port] : []);
+  for (const port of ports) {
+    if (await probePort(port)) return port;
+  }
+  return 0;
 }
 
-async function cmdUp() {
-  const state = readState();
-  const results = [];
-  for (const p of PROCESSES) {
-    const existing = state[p.name];
-    const alive = existing?.pid && isAlive(existing.pid);
-    const portUp = await probePort(p.port);
-    if (alive && (p.port === 0 || portUp)) {
-      results.push({ name: p.name, action: 'already-up', pid: existing.pid });
-      continue;
+function logPath(name) { return join(repoRoot, `.${name}.log`); }
+
+/**
+ * Print the exact Bash invocation an agent should use to launch a process.
+ *
+ * Why this is a "print, don't spawn" pattern: the Claude Code harness sandboxes
+ * each Bash tool call's process tree. Anything we spawn from inside a tool
+ * call — even `detached: true` + `unref()` — dies when the Bash invocation
+ * returns. The only way to keep vite/agent/server alive across multiple tool
+ * calls is to launch them via `Bash(..., run_in_background: true)`, which
+ * the harness tracks as a long-lived background task.
+ *
+ * So this script's job is to TELL the agent the right command; the agent has
+ * to actually issue the Bash call.
+ */
+function launchHint(p) {
+  const cmdline = `${p.cmd} ${p.args.join(' ')}`;
+  return [
+    `  To start "${p.name}" so it survives across tool calls, run:`,
+    ``,
+    `    Bash(command: "${cmdline}", run_in_background: true)`,
+    ``,
+    `  via Claude Code's Bash tool (NOT this dev-stack script — anything spawned`,
+    `  inside a sandboxed Bash invocation is reaped when that call returns).`,
+  ].join('\n');
+}
+
+async function cmdUp(filter) {
+  const targets = filter && filter.length > 0
+    ? PROCESSES.filter((p) => filter.includes(p.name))
+    : PROCESSES;
+  if (filter && filter.length > 0) {
+    const unknown = filter.filter((n) => !knownNames().includes(n));
+    if (unknown.length > 0) {
+      console.error(`unknown process name(s): ${unknown.join(', ')}. Known: ${knownNames().join(', ')}`);
+      process.exit(2);
     }
-    // If port is taken by something we didn't start, refuse rather than spawn a doomed dup.
-    if (!alive && p.port && portUp) {
-      results.push({ name: p.name, action: 'port-busy', pid: null, hint: `:${p.port} held by another process` });
-      continue;
-    }
-    const pid = spawnProc(p);
-    state[p.name] = { pid, startedAt: Date.now() };
-    results.push({ name: p.name, action: 'spawned', pid });
   }
-  writeState(state);
-  // Give the processes a moment to bind ports before reporting status.
-  await new Promise((r) => setTimeout(r, 1500));
-  await printStatus(results);
+  console.log(`dev-stack "up" doesn't spawn processes itself — it prints the`);
+  console.log(`right invocation. (See the comment above launchHint() in dev-stack.mjs`);
+  console.log(`for why.) For each requested process:\n`);
+  for (const p of targets) {
+    const activePort = await findActivePort(p);
+    if (p.port && activePort) {
+      console.log(`◆ ${p.name}: already responding on :${activePort} — nothing to do.\n`);
+      continue;
+    }
+    if (p.port === 0) {
+      console.log(`◆ ${p.name}: no port to probe — assume not running.`);
+    } else {
+      console.log(`◆ ${p.name}: nothing on :${p.port}.`);
+    }
+    console.log(launchHint(p));
+    console.log('');
+  }
 }
 
 async function cmdDown() {
-  const state = readState();
+  // We don't manage PIDs anymore (see launchHint comment). Use the harness's
+  // KillShell tool to stop background Bash invocations the agent started, or
+  // kill matched PIDs by command line on Windows via tasklist.
+  console.log(`dev-stack doesn't manage processes itself, so it can't stop them.`);
+  console.log(`To stop a background Bash invocation you started, use the`);
+  console.log(`harness's KillShell tool with the shell ID returned by run_in_background.`);
+  console.log(``);
+  console.log(`To kill all matching processes on Windows, manually:`);
   for (const p of PROCESSES) {
-    const ent = state[p.name];
-    if (!ent?.pid) continue;
-    try { process.kill(ent.pid); console.log(`  killed ${p.name} (pid ${ent.pid})`); }
-    catch (err) { console.log(`  could not kill ${p.name} (pid ${ent.pid}): ${err.message}`); }
-    delete state[p.name];
+    if (p.cmd === 'npx' || p.cmd === 'npm' || p.cmd === 'node') {
+      const pattern = p.args.slice(-2).join(' ');
+      console.log(`  ${p.name}: PowerShell -c "Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -match '${pattern}' } | Stop-Process -Force"`);
+    }
   }
-  writeState(state);
 }
 
 async function cmdRestartAgent() {
-  const state = readState();
-  const ent = state.agent;
-  if (ent?.pid && isAlive(ent.pid)) {
-    try { process.kill(ent.pid); console.log(`  killed agent (pid ${ent.pid})`); }
-    catch (err) { console.log(`  agent kill failed: ${err.message}`); }
-  }
+  console.log(`To restart the agent without HMR:`);
+  console.log(``);
+  console.log(`  1. Stop the running agent (KillShell on its background ID, or`);
+  console.log(`     PowerShell-kill the node.exe whose CommandLine matches \`src/agent.ts\`).`);
+  console.log(`  2. Then:\n`);
   const agentProc = PROCESSES.find((p) => p.name === 'agent');
-  const pid = spawnProc(agentProc);
-  state.agent = { pid, startedAt: Date.now() };
-  writeState(state);
-  console.log(`  spawned agent (pid ${pid}) — tail .agent.log for boot`);
+  console.log(launchHint(agentProc));
 }
 
 async function printStatus(actionRows) {
@@ -136,29 +175,43 @@ async function printStatus(actionRows) {
   for (const p of PROCESSES) {
     const ent = state[p.name];
     const alive = ent?.pid ? isAlive(ent.pid) : false;
-    const portUp = await probePort(p.port);
+    const activePort = await findActivePort(p);
+    const ownedByUs = alive;
+    // Status legend:
+    //   managed  — we spawned it and the PID is still alive
+    //   external — port is held by something we didn't start (another worktree, audio agent, etc.)
+    //   down     — no PID and no port
+    //   dead     — we have a PID record but the process is gone (orphaned state)
+    let status;
+    if (ownedByUs) status = 'managed';
+    else if (!alive && ent?.pid) status = 'dead';
+    else if (activePort) status = 'external';
+    else if (p.port === 0) status = '—';
+    else status = 'down';
+    const portStr = activePort
+      ? (activePort === p.port ? String(activePort) : `${activePort} (≠${p.port})`)
+      : (p.port ? `${p.port} ✗` : '—');
     const ageMs = ent?.startedAt ? Date.now() - ent.startedAt : 0;
-    const ageStr = ent?.startedAt ? `${Math.floor(ageMs / 1000)}s ago` : '—';
+    const ageStr = ownedByUs && ent?.startedAt ? `${Math.floor(ageMs / 1000)}s ago` : '—';
     const action = actionRows?.find((r) => r.name === p.name);
     rows.push({
       name: p.name,
+      status,
       pid: ent?.pid ?? '—',
-      alive: alive ? '✓' : '✗',
-      port: p.port || '—',
-      portUp: p.port ? (portUp ? '✓' : '✗') : '—',
+      port: portStr,
       started: ageStr,
       action: action?.action ?? '',
       hint: action?.hint ?? '',
     });
   }
-  // Pretty-print.
   const w = (k, min) => Math.max(min, ...rows.map((r) => String(r[k]).length));
-  const widths = { name: w('name', 7), pid: w('pid', 6), alive: w('alive', 5), port: w('port', 5), portUp: w('portUp', 7), started: w('started', 9), action: w('action', 10), hint: 0 };
-  const header = ['name','pid','alive','port','portUp','started','action','hint'].map((k) => k.padEnd(widths[k])).join('  ');
+  const cols = ['name','status','pid','port','started','action','hint'];
+  const widths = Object.fromEntries(cols.map((k) => [k, k === 'hint' ? 0 : w(k, k.length)]));
+  const header = cols.map((k) => k.padEnd(widths[k])).join('  ');
   console.log(header);
   console.log('─'.repeat(header.length));
   for (const r of rows) {
-    console.log(['name','pid','alive','port','portUp','started','action','hint'].map((k) => String(r[k]).padEnd(widths[k])).join('  '));
+    console.log(cols.map((k) => String(r[k]).padEnd(widths[k])).join('  '));
   }
 }
 
@@ -176,7 +229,7 @@ function cmdTail(name, n) {
 const [, , subcmd, ...rest] = process.argv;
 const cmd = (subcmd || 'status').toLowerCase();
 try {
-  if (cmd === 'up') await cmdUp();
+  if (cmd === 'up') await cmdUp(rest);
   else if (cmd === 'down') await cmdDown();
   else if (cmd === 'restart-agent') await cmdRestartAgent();
   else if (cmd === 'status') await printStatus();
