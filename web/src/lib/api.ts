@@ -182,6 +182,44 @@ export function writeTtsChoice(choice: TtsChoice): void {
   }
 }
 
+// ── STT engine selection (next-session) ───────────────────────────────
+
+// AssemblyAI Universal-3 Pro Streaming is the default — empirically much
+// more accurate on noisy code-switched Spanish/English than Deepgram nova-3.
+// Deepgram stays selectable for cost or fallback reasons. Like the TTS
+// picker, the choice applies on the next session: LiveKit's AgentSession
+// binds STT at construction time and there is no live-swap API.
+export const STT_OPTIONS = [
+  { value: 'assemblyai', label: 'AssemblyAI — Universal-3 Pro Streaming' },
+  { value: 'deepgram', label: 'Deepgram — Nova-3 (multilingual)' },
+] as const;
+
+export type SttChoice = (typeof STT_OPTIONS)[number]['value'];
+
+export const DEFAULT_STT: SttChoice = 'assemblyai';
+
+const STT_STORAGE_KEY = 'habla_stt';
+
+export function readSttChoice(): SttChoice {
+  try {
+    const raw = localStorage.getItem(STT_STORAGE_KEY);
+    if (raw && STT_OPTIONS.some((o) => o.value === raw)) {
+      return raw as SttChoice;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_STT;
+}
+
+export function writeSttChoice(choice: SttChoice): void {
+  try {
+    localStorage.setItem(STT_STORAGE_KEY, choice);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getToken(opts: {
   learnerId: string;
   room?: string;
@@ -191,6 +229,8 @@ export function getToken(opts: {
   /** New paired voice selection from the Settings drawer's picker. */
   ttsProvider?: string;
   ttsVoice?: string;
+  /** STT engine for this session (assemblyai | deepgram). */
+  stt?: string;
   /** 'placement' opens the post-signup calibration conversation. */
   mode?: 'placement' | 'normal';
 }): Promise<TokenResponse> {
@@ -201,6 +241,7 @@ export function getToken(opts: {
   if (opts.tts) params.set('tts', opts.tts);
   if (opts.ttsProvider) params.set('ttsProvider', opts.ttsProvider);
   if (opts.ttsVoice) params.set('ttsVoice', opts.ttsVoice);
+  if (opts.stt) params.set('stt', opts.stt);
   if (opts.mode === 'placement') params.set('mode', 'placement');
   return request<TokenResponse>(`/api/token?${params.toString()}`);
 }

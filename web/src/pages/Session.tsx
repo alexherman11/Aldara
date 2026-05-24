@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useLocation } from 'wouter';
 import { Orb } from '@/components/Orb';
+import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { Waveform } from '@/components/Waveform';
-import { X, Mic, Sparkles } from 'lucide-react';
+import { X, Mic, Sparkles, Save, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Room,
@@ -13,7 +14,12 @@ import {
   type RemoteTrackPublication,
   type TranscriptionSegment,
 } from 'livekit-client';
-import { getToken, readStoredLearner, readTtsChoice } from '@/lib/api';
+import {
+  getToken,
+  readStoredLearner,
+  readSttChoice,
+  readTtsChoice,
+} from '@/lib/api';
 import { getTtsPreference } from '@/lib/tts-settings';
 import { devBus } from '@/lib/dev-bus';
 
@@ -116,6 +122,11 @@ export default function Session() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isPushing, setIsPushing] = useState(false);
   const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
+  // When true, the X button has been pressed once and we're waiting for the
+  // user to choose between compaction and a no-save bail. Distinct from
+  // phase='ending' (which is the *post-confirm* state when the RPC is in
+  // flight) so the X button doesn't dispatch the RPC prematurely.
+  const [showEndChoice, setShowEndChoice] = useState(false);
 
   /**
    * Per-turn pronunciation results indexed by normalized reference text. The
@@ -201,6 +212,7 @@ export default function Session() {
           tts: readTtsChoice(),
           ttsProvider: ttsPref?.provider,
           ttsVoice: ttsPref?.voice,
+          stt: readSttChoice(),
         });
         token = t.token;
         url = t.url;
@@ -357,38 +369,47 @@ export default function Session() {
 
   // ── End session + compaction ─────────────────────────────────────
 
-  const handleEnd = useCallback(async () => {
-    const room = roomRef.current;
-    if (!room) {
-      setLocation('/home');
-      return;
-    }
-    const target = findAgentIdentity(room);
-    if (!target) {
-      setLocation('/home');
-      return;
-    }
-    setPhase('ending');
-    try {
-      const resp = await room.localParticipant.performRpc({
-        destinationIdentity: target,
-        method: 'end_session',
-        payload: '',
-        responseTimeout: 60_000,
-      });
-      const parsed = JSON.parse(resp);
-      sessionStorage.setItem('habla_last_compaction', JSON.stringify(parsed));
-    } catch (err) {
-      console.warn('end_session failed:', err);
-      sessionStorage.setItem(
-        'habla_last_compaction',
-        JSON.stringify({ ok: false, error: String(err) }),
-      );
-    } finally {
-      setPhase('ended');
-      setLocation('/summary');
-    }
-  }, [setLocation]);
+  const handleEnd = useCallback(
+    async (compact: boolean) => {
+      setShowEndChoice(false);
+      const room = roomRef.current;
+      if (!room) {
+        setLocation('/home');
+        return;
+      }
+      const target = findAgentIdentity(room);
+      if (!target) {
+        setLocation('/home');
+        return;
+      }
+      setPhase('ending');
+      try {
+        const resp = await room.localParticipant.performRpc({
+          destinationIdentity: target,
+          method: 'end_session',
+          payload: JSON.stringify({ compact }),
+          // Skip-compaction is fast (no LLM); compaction can take 10–15s on a
+          // long session. Either path fits comfortably inside 60s.
+          responseTimeout: 60_000,
+        });
+        const parsed = JSON.parse(resp);
+        sessionStorage.setItem('habla_last_compaction', JSON.stringify(parsed));
+      } catch (err) {
+        console.warn('end_session failed:', err);
+        sessionStorage.setItem(
+          'habla_last_compaction',
+          JSON.stringify({ ok: false, error: String(err) }),
+        );
+      } finally {
+        setPhase('ended');
+        // If the user explicitly chose not to compact, send them straight home
+        // — the Summary screen has nothing meaningful to show them. Otherwise
+        // go to /summary to see what changed.
+        setLocation(compact ? '/summary' : '/home');
+      }
+    },
+    [setLocation],
+  );
 
   // ── Room event wiring ────────────────────────────────────────────
 
@@ -539,11 +560,15 @@ export default function Session() {
       className="h-full min-h-0 flex flex-col relative bg-background"
       data-testid="session-screen"
     >
-      {/* Header */}
-      <div className="px-6 pt-10 pb-3 flex justify-between items-center z-20 shrink-0">
-        <div className="flex items-center gap-2">
+      {/* Header — menu on the left for mid-session access to Profile /
+          Developer (live diagnostics flow into the dev-bus from this page,
+          so it's most useful while the conversation is actually running),
+          status pill in the middle, end-session X on the right. */}
+      <div className="px-6 pt-10 pb-3 flex items-center z-20 shrink-0 gap-2">
+        <SettingsDrawer />
+        <div className="flex items-center gap-2 flex-1 min-w-0">
           <span
-            className="w-2 h-2 rounded-full block"
+            className="w-2 h-2 rounded-full block shrink-0"
             style={{
               background:
                 phase === 'live'
@@ -555,7 +580,7 @@ export default function Session() {
                 phase === 'live' ? 'pulse 1.4s ease-in-out infinite' : 'none',
             }}
           />
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest">
+          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest truncate">
             {phase === 'connecting'
               ? 'Connecting…'
               : phase === 'live'
@@ -568,15 +593,78 @@ export default function Session() {
           </span>
         </div>
         <button
-          onClick={handleEnd}
+          onClick={() => setShowEndChoice(true)}
           disabled={phase === 'ending'}
           className="p-2 rounded-full bg-card border border-border text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           data-testid="btn-end-session"
-          title="End and compact this session"
+          title="End this session"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
+
+      {/* End-of-session choice modal — appears when the user clicks X.
+          Two paths: "compact" (current behavior; calls Claude, updates cores,
+          seeds FSRS, then routes to /summary) or "just end" (fires the same
+          RPC with compact:false so the agent skips the LLM call and FSRS
+          writes, then routes straight home). Either choice closes the
+          LiveKit room from the cleanup effect on unmount. */}
+      {showEndChoice && (
+        <div
+          className="absolute inset-0 z-40 flex items-center justify-center px-6"
+          style={{ background: 'hsl(var(--background) / 0.78)' }}
+          data-testid="end-choice-modal"
+          onClick={() => setShowEndChoice(false)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18 }}
+            className="w-full max-w-sm bg-card border border-border rounded-2xl p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="font-serif text-xl text-foreground mb-1">
+              End this session?
+            </h2>
+            <p className="text-sm text-muted-foreground mb-5 leading-snug">
+              Compacting takes 10–15 seconds — Sofía reviews the transcript,
+              updates your cores, and adds new words to your FSRS deck. You can
+              also just end without saving any of that.
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => void handleEnd(true)}
+                className="w-full h-12 rounded-xl flex items-center justify-center gap-2 text-sm font-semibold text-white"
+                style={{
+                  background:
+                    'linear-gradient(135deg, hsl(15 85% 52%), hsl(28 85% 56%))',
+                  boxShadow: '0 4px 16px hsl(15 85% 52% / 0.30)',
+                }}
+                data-testid="btn-end-compact"
+              >
+                <Save className="w-4 h-4" />
+                Compact and save
+              </button>
+              <button
+                onClick={() => void handleEnd(false)}
+                className="w-full h-11 rounded-xl flex items-center justify-center gap-2 text-sm font-medium border border-border bg-background text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="btn-end-skip"
+              >
+                <LogOut className="w-4 h-4" />
+                End without saving
+              </button>
+              <button
+                onClick={() => setShowEndChoice(false)}
+                className="w-full h-9 rounded-xl text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                data-testid="btn-end-cancel"
+              >
+                Keep talking
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Error banner */}
       {phase === 'error' && (

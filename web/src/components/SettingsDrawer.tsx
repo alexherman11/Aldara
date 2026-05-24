@@ -18,12 +18,16 @@ import {
   getDebugConfig,
   getLearnerState,
   readStoredLearner,
+  readSttChoice,
   readTtsChoice,
+  writeSttChoice,
   writeTtsChoice,
+  STT_OPTIONS,
   TTS_OPTIONS,
   type DebugConfig,
   type LearnerState,
   type StoredLearner,
+  type SttChoice,
   type TtsChoice,
 } from '@/lib/api';
 import {
@@ -319,6 +323,7 @@ function DeveloperTab({
                 older browser tabs that wrote into the `tts` query param.
                 The new TtsSettings above takes precedence when both are set. */}
             <VoiceSelectorInline />
+            <SttSelectorInline />
             <KvList
               rows={[
                 ['Server', config.livekit.url],
@@ -603,6 +608,39 @@ function VoiceSelectorInline() {
       </select>
       <p className="text-[11px] text-muted-foreground">
         Applies to your next session — start a new conversation to hear it.
+      </p>
+    </div>
+  );
+}
+
+// Per-session STT engine picker. Same constraint as the TTS picker — the
+// LiveKit AgentSession binds STT at construction time, so the choice only
+// takes effect on the next session.
+function SttSelectorInline() {
+  const [choice, setChoice] = useState<SttChoice>(() => readSttChoice());
+  return (
+    <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Recognizer (STT)
+      </span>
+      <select
+        value={choice}
+        onChange={(e) => {
+          const v = e.target.value as SttChoice;
+          setChoice(v);
+          writeSttChoice(v);
+        }}
+        className="w-full h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono text-foreground"
+        data-testid="select-stt"
+      >
+        {STT_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-muted-foreground">
+        Applies to your next session — STT is bound at session start.
       </p>
     </div>
   );
