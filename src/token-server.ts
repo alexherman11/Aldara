@@ -163,18 +163,24 @@ app.get('/api/token', async (req: Request, res: Response) => {
   const room = (req.query.room as string) || `habla-${Date.now()}`;
   const identity = (req.query.identity as string) || 'learner';
   const learnerId = (req.query.learnerId as string) || '';
+  // Voice/TTS provider picked in the web app's Debug-tab selector. Rides
+  // along in dispatch metadata so the agent's createTts() honors it.
+  const tts = (req.query.tts as string) || '';
 
   // Fire the dispatch BEFORE returning the token so by the time the browser
   // connects, LiveKit already has a pending dispatch waiting for this room.
   // Failure here doesn't block token issuance — surface a warning instead so
   // a misconfigured dispatch doesn't make the page un-loadable.
   try {
-    const metadata = learnerId ? JSON.stringify({ learnerId }) : '';
+    const meta: Record<string, string> = {};
+    if (learnerId) meta.learnerId = learnerId;
+    if (tts) meta.tts = tts;
+    const metadata = Object.keys(meta).length ? JSON.stringify(meta) : '';
     const d = await dispatchClient.createDispatch(room, SOFIA_AGENT_NAME, {
       metadata,
     });
     console.log(
-      `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} (id=${d.id}, learnerId=${learnerId || '∅'})`,
+      `[token-server] dispatched ${SOFIA_AGENT_NAME} → room ${room} (id=${d.id}, learnerId=${learnerId || '∅'}, tts=${tts || '∅'})`,
     );
   } catch (err) {
     console.warn(`[token-server] dispatch failed for room ${room}:`, err);

@@ -11,7 +11,8 @@
     "agent": "tsx src/agent.ts dev",
     "server": "tsx src/token-server.ts",
     "web": "npm run dev --prefix web",
-    "dev": "concurrently -n server,agent,web -c blue,magenta,green \"npm:server\" \"npm:agent\" \"npm:web\"",
+    "livekit": "node scripts/start-livekit.mjs",
+    "dev": "concurrently -n livekit,server,agent,web -c yellow,blue,magenta,green \"npm:livekit\" \"npm:server\" \"npm:agent\" \"npm:web\"",
     "setup-db": "tsx scripts/setup-db.ts",
     "test": "tsx scripts/run-unit-tests.ts",
     "test-compaction": "tsx scripts/test-compaction.ts"
@@ -19,16 +20,21 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
     "@livekit/agents": "1.2.6",
+    "@livekit/agents-plugin-assemblyai": "^1.2.8",
     "@livekit/agents-plugin-cartesia": "latest",
     "@livekit/agents-plugin-deepgram": "latest",
+    "@livekit/agents-plugin-google": "^1.2.6",
+    "@livekit/agents-plugin-inworld": "^1.2.6",
     "@livekit/agents-plugin-openai": "latest",
     "@livekit/agents-plugin-silero": "latest",
+    "@livekit/rtc-node": "^0.13.28",
     "dotenv": "^16.4.0",
     "express": "^4.21.0",
     "livekit-server-sdk": "^2.9.0",
     "microsoft-cognitiveservices-speech-sdk": "^1.49.0",
     "pg": "^8.13.0",
-    "ts-fsrs": "^4.5.0"
+    "ts-fsrs": "^4.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",

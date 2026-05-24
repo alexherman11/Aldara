@@ -65,11 +65,31 @@ npm run dev
 
 This launches three processes in parallel via `concurrently`:
 
-| Name   | Port  | What                                              |
-| ------ | ----- | ------------------------------------------------- |
-| server | 3000  | Express token-server + /api/* (token, learner CRUD, debug) |
-| agent  | —     | LiveKit Agent worker (Sofía). Connects out to LiveKit Cloud. |
-| web    | 5173  | Vite dev server. Proxies /api to :3000. Open this one. |
+| Name    | Port  | What                                              |
+| ------- | ----- | ------------------------------------------------- |
+| livekit | 7880  | Self-hosted `livekit-server.exe` (loopback only). Both browser and agent connect here. |
+| server  | 3000  | Express token-server + /api/* (token, learner CRUD, debug) |
+| agent   | —     | LiveKit Agent worker (Sofía). Connects to local livekit at :7880. |
+| web     | 5173  | Vite dev server. Proxies /api to :3000. Open this one. |
+
+#### LiveKit: self-hosted vs Cloud
+
+Default is **self-hosted** — saves you LiveKit Cloud free-tier minutes for the
+times you actually need remote testers. One-time setup:
+
+1. Download the Windows release zip from
+   <https://github.com/livekit/livekit/releases/latest> (asset
+   `livekit_*_windows_amd64.zip`).
+2. Extract `livekit-server.exe` into `tools/livekit/` next to the existing
+   `livekit.yaml`.
+3. That's it — `npm run dev` now boots it as the `livekit` pane on `:7880`.
+
+The API key/secret in `tools/livekit/livekit.yaml` must match `LIVEKIT_API_KEY`
+/ `LIVEKIT_API_SECRET` in `.env`. The binary is gitignored.
+
+To switch back to Cloud, set `LIVEKIT_URL=wss://<your-project>.livekit.cloud`
+in `.env` and drop the `livekit` entry from the `dev` script in `package.json`
+(or just ignore the extra pane — the agent picks whichever URL `.env` has).
 
 Open <http://127.0.0.1:5173>. The first time, you'll be routed to **/signup**.
 Signup posts to `/api/learner` which creates a row in Postgres and stamps the

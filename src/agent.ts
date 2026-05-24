@@ -9,7 +9,13 @@ const __agentDir = _dirname(_fileURLToPath(import.meta.url));
 dotenvConfig({ path: _join(__agentDir, '..', '.env'), override: true });
 // Surface critical env at startup so we don't silently fall back to a broken
 // state on the first turn that needs them.
-for (const k of ['ANTHROPIC_API_KEY', 'DEEPGRAM_API_KEY', 'OPENAI_API_KEY', 'CARTESIA_API_KEY']) {
+for (const k of [
+  'ANTHROPIC_API_KEY',
+  'DEEPGRAM_API_KEY',
+  'OPENAI_API_KEY',
+  'CARTESIA_API_KEY',
+  'ASSEMBLYAI_API_KEY',
+]) {
   if (!process.env[k]) {
     console.warn(`[agent] WARNING: ${k} is missing — features depending on it will fail`);
   }
@@ -28,6 +34,9 @@ import * as deepgram from '@livekit/agents-plugin-deepgram';
 import * as openai from '@livekit/agents-plugin-openai';
 import * as cartesia from '@livekit/agents-plugin-cartesia';
 import * as silero from '@livekit/agents-plugin-silero';
+import * as assemblyai from '@livekit/agents-plugin-assemblyai';
+import * as google from '@livekit/agents-plugin-google';
+import * as inworld from '@livekit/agents-plugin-inworld';
 
 import { loadSessionContext, type SessionContext } from './session-context.js';
 import { buildSystemPrompt } from './prompt-builder.js';
@@ -164,12 +173,49 @@ function buildPronunciationRenderData(
 const CARTESIA_VOICE_ID =
   process.env.CARTESIA_VOICE_ID || '5c5ad5e7-1020-476b-8b91-fdcbe9cc313c';
 
+// Pick the live STT provider at runtime. Default is AssemblyAI Universal-3 Pro
+// Streaming — empirically much more accurate on noisy code-switched Spanish/English
+// than Deepgram nova-3 multi. U3 Pro Streaming silently ignores `language_code`,
+// so we steer multilingual behavior via the `prompt` field per AssemblyAI's docs.
+// The Spanish vocabulary in `keytermsPrompt` biases away from common mistakes
+// observed in earlier sessions ("Functionar", "Acesa", "verdas", etc.).
+function createStt() {
+  const provider = (process.env.STT_PROVIDER || 'assemblyai').toLowerCase();
+  if (provider === 'deepgram') {
+    console.log('[agent] STT: deepgram nova-3 (language=multi)');
+    return new deepgram.STT({ model: 'nova-3', language: 'multi' });
+  }
+  console.log('[agent] STT: assemblyai u3-rt-pro (multilingual prompt)');
+  return new assemblyai.STT({
+    speechModel: 'u3-rt-pro',
+    prompt: 'Transcribe Spanish and English. The speaker is a Spanish learner who code-switches frequently.',
+    keytermsPrompt: [
+      'hola', 'gracias', 'por favor', 'sí', 'no', 'español',
+      'puedo', 'quiero', 'estoy', 'soy', 'tengo', 'voy',
+      'hablar', 'comer', 'beber', 'ver', 'entender', 'aprender',
+      'palabras', 'pronunciación', 'anotaciones', 'programa',
+      'México', 'España', 'Argentina',
+    ],
+    formatTurns: true,
+  });
+}
+
+// Sofía's TTS persona — handed to providers that accept a style instruction
+// (Gemini). Keeps the voice warm and unhurried regardless of which engine
+// renders it.
+const SOFIA_TTS_STYLE =
+  'Speak as Sofía: a warm, patient, encouraging Spanish tutor. ' +
+  'Natural conversational pace, gentle and clear, never rushed.';
+
 // Pick a TTS at runtime so we can flip providers without code edits when one
-// goes down or runs out of credits. TTS_PROVIDER=openai uses gpt-4o-mini-tts
-// with a Spanish-warm female voice ("shimmer"). Default stays on Cartesia,
-// matching the original Habla voice.
-function createTts() {
-  const provider = (process.env.TTS_PROVIDER || 'cartesia').toLowerCase();
+// goes down or runs out of credits. `choice` is the per-session selection
+// from the web app's voice dropdown (see resolveTtsChoice); it falls back to
+// the TTS_PROVIDER env var and finally to Cartesia, the original Habla voice.
+// Recognized values: cartesia | openai | google-flash | google-pro | inworld
+function createTts(choice?: string) {
+  const provider = (choice || process.env.TTS_PROVIDER || 'cartesia')
+    .toLowerCase();
+
   if (provider === 'openai') {
     const voice = (process.env.OPENAI_TTS_VOICE || 'shimmer') as
       | 'alloy'
@@ -185,6 +231,33 @@ function createTts() {
     console.log(`[agent] TTS: openai gpt-4o-mini-tts (voice=${voice})`);
     return new openai.TTS({ model: 'gpt-4o-mini-tts', voice });
   }
+
+  if (provider === 'google-flash' || provider === 'google-pro') {
+    const model =
+      provider === 'google-pro'
+        ? 'gemini-2.5-pro-tts'
+        : 'gemini-2.5-flash-tts';
+    const voiceName = process.env.GEMINI_TTS_VOICE || 'Aoede';
+    console.log(`[agent] TTS: google ${model} (voice=${voiceName})`);
+    return new google.beta.TTS({
+      model,
+      voiceName,
+      apiKey: process.env.GOOGLE_API_KEY,
+      instructions: SOFIA_TTS_STYLE,
+    });
+  }
+
+  if (provider === 'inworld') {
+    const model = process.env.INWORLD_TTS_MODEL || 'inworld-tts-2';
+    const voice = process.env.INWORLD_VOICE || 'Ashley';
+    console.log(`[agent] TTS: inworld ${model} (voice=${voice})`);
+    return new inworld.TTS({
+      model,
+      voice,
+      apiKey: process.env.INWORLD_API_KEY,
+    });
+  }
+
   console.log(`[agent] TTS: cartesia sonic-3 (voice=${CARTESIA_VOICE_ID})`);
   return new cartesia.TTS({
     model: 'sonic-3',
@@ -222,10 +295,66 @@ function resolveLearnerId(ctx: JobContext): string {
   return FALLBACK_LEARNER_ID;
 }
 
+/**
+ * Read the TTS provider choice from dispatch metadata (`{"tts":"..."}`),
+ * stamped by the token-server from the web app's voice selector. Returns
+ * undefined when absent — createTts() then falls back to the env default.
+ */
+function resolveTtsChoice(ctx: JobContext): string | undefined {
+  const raw = ctx.job?.metadata;
+  if (typeof raw === 'string' && raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.tts === 'string' && parsed.tts.length > 0) {
+        return parsed.tts;
+      }
+    } catch {
+      // metadata wasn't JSON — no tts choice to read
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Pull a plain text string out of an llm.ChatMessage.content payload. The
+ * field is union-typed in the agents SDK — sometimes a bare string, sometimes
+ * an array of content parts (each part either a string or `{type:'text',
+ * text:'...'}`). Doing JSON.stringify on the array (the previous behavior)
+ * meant the pronunciation reference_text was the literal `'["..."]'` with
+ * brackets — which never matched the cleaned bubble text on the web client,
+ * so the inline word annotations and summary band never rendered.
+ */
+function extractMessageText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  const parts: string[] = [];
+  for (const p of content) {
+    if (typeof p === 'string') {
+      parts.push(p);
+    } else if (
+      p &&
+      typeof p === 'object' &&
+      'text' in p &&
+      typeof (p as { text: unknown }).text === 'string'
+    ) {
+      parts.push((p as { text: string }).text);
+    }
+  }
+  return parts.join(' ').trim();
+}
+
 class SofiaAgent extends voice.Agent {
   public ctx: SessionContext;
   public controllerState: ControllerState;
   public assessor: PronunciationAssessor;
+  /**
+   * Injected by entry() after the JobContext is available. Wraps
+   * ctx.room.localParticipant.publishData so the web client receives
+   * per-turn pronunciation render data as soon as Azure (or whichever
+   * provider) returns. Optional so unit tests / scripted harnesses can
+   * construct the agent without a live room.
+   */
+  public publishToRoom?: (data: Uint8Array, topic: string) => Promise<void>;
   private evalInFlight = false;
 
   /** PCM chunks for the IN-PROGRESS turn. Reset on PTT_start. */
@@ -343,10 +472,7 @@ class SofiaAgent extends voice.Agent {
     _chatCtx: llm.ChatContext,
     newMessage: llm.ChatMessage,
   ) {
-    const text =
-      typeof newMessage.content === 'string'
-        ? newMessage.content
-        : JSON.stringify(newMessage.content);
+    const text = extractMessageText(newMessage.content);
 
     this.ctx.fullTranscript.push({
       role: 'learner',
@@ -436,6 +562,21 @@ class SofiaAgent extends voice.Agent {
         this.ctx.recentAssessments.push(result);
         if (this.ctx.recentAssessments.length > MAX_STORED_ASSESSMENTS) {
           this.ctx.recentAssessments.shift();
+        }
+
+        // Push per-word render data to the web client so the learner's last
+        // bubble can light up with phoneme citations in real time. Best-effort:
+        // a failed publish must not interfere with the conversation.
+        try {
+          const payload = {
+            type: 'pronunciation',
+            turn: turnNumber,
+            ...buildPronunciationRenderData(result, this.ctx),
+          };
+          const encoded = new TextEncoder().encode(JSON.stringify(payload));
+          await this.publishToRoom?.(encoded, 'pronunciation');
+        } catch (err) {
+          console.warn('[pronunciation] publish to web failed:', err);
         }
 
         // Rebuild the prompt so the next tutor turn sees the [pronunciation]
@@ -532,11 +673,19 @@ export default defineAgent({
     console.log(`[agent] Pronunciation assessor: ${assessor.name}`);
 
     const agent = new SofiaAgent(sessionContext, assessor);
+    // Bind the live room's data publisher onto the agent so onUserTurnCompleted
+    // can stream pronunciation results to the web client without needing a
+    // direct ctx reference inside the agent class.
+    agent.publishToRoom = async (data, topic) => {
+      const lp = ctx.room.localParticipant;
+      if (!lp) return;
+      await lp.publishData(data, { topic, reliable: true });
+    };
 
     const session = new voice.AgentSession<SessionContext>({
-      stt: new deepgram.STT({ model: 'nova-3', language: 'multi' }),
+      stt: createStt(),
       llm: new openai.LLM({ model: 'gpt-4o' }),
-      tts: createTts(),
+      tts: createTts(resolveTtsChoice(ctx)),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
       turnHandling: {

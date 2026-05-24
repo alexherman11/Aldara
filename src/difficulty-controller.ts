@@ -130,11 +130,14 @@ Output a JSON object with this exact shape:
   "reason": string                   // one short sentence explaining the delta
 }
 
-Adjustment principles:
+HARD CEILING — the learner's English usage is the limit:
+The tutor must NEVER use more English than the learner does. Estimate the fraction of the learner's response that was spoken in English. The ratio target must never exceed that fraction. If the current ratio target is already above the learner's English usage, output a negative ratio_delta to pull it back down toward their level — this overrides every principle below. Adding English is acceptable only up to the point where the tutor matches the learner, never past it.
+
+Adjustment principles (applied only within the ceiling above):
 - Nailed it + no struggle → ratio_delta -0.03 (push toward more Spanish)
 - Hesitation + self-correction but landed it → ratio_delta -0.01 (slight push, they're learning)
-- Frustration or asked-for-translation → ratio_delta +0.04 (back off, give breathing room)
-- Answered in English when Spanish expected → ratio_delta +0.02 (they need more scaffolding)
+- Frustration or asked-for-translation → ratio_delta +0.04 (back off, give breathing room — but never above the learner's own English usage)
+- Answered in English when Spanish expected → ratio_delta 0 (mirror them; do not escalate English beyond what they just used)
 - Default if nothing notable → ratio_delta 0
 - Never exceed ±0.05 in a single turn.
 

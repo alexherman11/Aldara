@@ -130,7 +130,34 @@ async function openaiSynth(text: string): Promise<Buffer> {
   if (!resp.ok) {
     throw new Error(`OpenAI TTS HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
   }
-  return upsample24kTo48k(Buffer.from(await resp.arrayBuffer()));
+  // Peak-normalize to ~-3 dBFS. The raw gpt-4o-mini-tts PCM ships at roughly
+  // -20 dBFS, which is well below the level a microphone in a real conversation
+  // delivers; Deepgram's VAD/STT degrades severely on quiet input, producing
+  // empty transcripts that bypass the whole assessment path we're trying to
+  // exercise. Normalization happens before the 24→48 kHz upsample so the
+  // gain calculation runs on the smaller buffer.
+  return upsample24kTo48k(peakNormalize(Buffer.from(await resp.arrayBuffer())));
+}
+
+/** Bring a PCM buffer up to ~-3 dBFS without clipping. Safe no-op if already loud. */
+function peakNormalize(pcm: Buffer, targetPeak = 23000): Buffer {
+  const samples = new Int16Array(pcm.buffer, pcm.byteOffset, pcm.length / 2);
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const v = samples[i];
+    const abs = v < 0 ? -v : v;
+    if (abs > peak) peak = abs;
+  }
+  if (peak === 0 || peak >= targetPeak) return pcm;
+  const gain = targetPeak / peak;
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    let v = Math.round(samples[i] * gain);
+    if (v > 32767) v = 32767;
+    if (v < -32768) v = -32768;
+    out[i] = v;
+  }
+  return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
 }
 
 /** Cheap linear upsampling 24 kHz → 48 kHz (duplicate sample). Good enough for STT. */
@@ -168,8 +195,19 @@ function bufferToInt16(buf: Buffer): Int16Array {
  * `|` separator: anything before is Spanish (Cartesia), after is English (OpenAI).
  */
 async function synthesizeTurn(turn: ScriptedTurn): Promise<Int16Array> {
+  // Escape hatch: when Cartesia credits are exhausted, force everything
+  // through OpenAI's gpt-4o-mini-tts. It speaks Spanish acceptably for STT
+  // purposes (Deepgram nova-3 multi recovers the words fine) — quality
+  // doesn't matter for the harness, only that the agent sees plausible audio.
+  const forceOpenai =
+    (process.env.SCENARIO_LEARNER_TTS || '').toLowerCase() === 'openai';
+
   if (turn.language === 'es') {
-    return bufferToInt16(await cartesiaSynth(turn.text, 'es'));
+    return bufferToInt16(
+      forceOpenai
+        ? await openaiSynth(turn.text)
+        : await cartesiaSynth(turn.text, 'es'),
+    );
   }
   if (turn.language === 'en') {
     return bufferToInt16(await openaiSynth(turn.text));
@@ -181,9 +219,10 @@ async function synthesizeTurn(turn: ScriptedTurn): Promise<Int16Array> {
     const trimmed = parts[i].trim();
     if (!trimmed) continue;
     const isEs = i % 2 === 0; // first part Spanish, then alternates
-    const pcm = isEs
-      ? bufferToInt16(await cartesiaSynth(trimmed, 'es'))
-      : bufferToInt16(await openaiSynth(trimmed));
+    const pcm =
+      isEs && !forceOpenai
+        ? bufferToInt16(await cartesiaSynth(trimmed, 'es'))
+        : bufferToInt16(await openaiSynth(trimmed));
     blobs.push(pcm);
     // small natural gap between language switches
     blobs.push(new Int16Array(Math.floor(0.25 * SAMPLE_RATE)));
@@ -326,6 +365,50 @@ export async function runScenario(scenario: Scenario): Promise<string> {
   const room = new Room();
   let agentIdentity: string | null = null;
   let agentState: string = 'unknown';
+
+  // Listen for the per-turn pronunciation payload the agent now publishes on
+  // the 'pronunciation' topic. This is the same channel the web client uses
+  // to light up inline phoneme citations — receiving it here in the harness
+  // proves the path end-to-end without needing a browser.
+  room.on('dataReceived', (payload, _participant, _kind, topic) => {
+    if (topic !== 'pronunciation') return;
+    try {
+      const decoded = JSON.parse(new TextDecoder().decode(payload as Uint8Array));
+      log({
+        ts: Date.now(),
+        type: 'note',
+        data: {
+          msg: 'pronunciation-data-channel',
+          turn: decoded.turn,
+          reference_text: decoded.reference_text,
+          recognized_text: decoded.recognized_text,
+          overall: decoded.overall,
+          divergence: decoded.divergence,
+          flagged_words: (decoded.words ?? [])
+            .filter((w: { score: number; error_type: string }) =>
+              w.score < 70 || w.error_type !== 'None',
+            )
+            .map((w: { word: string; score: number; phoneme_sub?: unknown }) => ({
+              word: w.word,
+              score: w.score,
+              phoneme_sub: w.phoneme_sub,
+            })),
+        },
+      });
+      console.log(
+        `  📣 pronunciation data-channel: turn ${decoded.turn}, score ${
+          Math.round(decoded.overall?.pronunciation ?? 0)
+        }, ${
+          (decoded.words ?? []).filter(
+            (w: { score: number; error_type: string }) =>
+              w.score < 70 || w.error_type !== 'None',
+          ).length
+        } flagged words`,
+      );
+    } catch (err) {
+      console.warn('  pronunciation payload parse failed:', err);
+    }
+  });
 
   room.on(RoomEvent.ParticipantConnected, (p) => {
     if (p.attributes && p.attributes['lk.agent.state']) {

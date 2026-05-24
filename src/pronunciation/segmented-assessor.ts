@@ -55,6 +55,15 @@ export class SegmentedAssessor implements PronunciationAssessor {
     const audioBuf = Buffer.isBuffer(req.audio)
       ? req.audio
       : Buffer.from(req.audio);
-    return this.scorer.score(audioBuf);
+    const result = await this.scorer.score(audioBuf);
+    // The segmented scorer uses Deepgram REST as the per-phrase Azure reference,
+    // so it sets reference_text = REST transcript. The web client, however,
+    // indexes the published pronunciation payload by normalizeText(reference_text)
+    // and looks it up by normalizeText(bubbleText) — where bubbleText comes from
+    // the *live* STT. When those texts diverge (frequent for noisy/code-switched
+    // turns) the lookup misses and the bubble stays unannotated even though the
+    // per-word data is correct. Restore the caller's reference here; recognized_text
+    // already carries the REST transcript for the divergence-aware UI/prompt.
+    return { ...result, reference_text: req.reference_text };
   }
 }

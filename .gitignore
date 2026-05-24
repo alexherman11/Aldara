@@ -12,3 +12,15 @@ web/dist/
 
 # Local-only env files
 .env.local
+
+# Self-hosted livekit-server binary (downloaded, see README)
+tools/livekit/livekit-server.exe
+tools/livekit/LICENSE
+
+# Local dev process logs (`npm run dev` redirects stdio to these)
+*.log
+*.log.err
+.logs/
+
+# Claude Code worktrees — never committed
+.claude/worktrees/
