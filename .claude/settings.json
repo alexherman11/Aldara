@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hook-typecheck-web.mjs"
+          }
+        ]
+      }
+    ]
+  }
+}

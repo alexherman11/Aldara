@@ -28,3 +28,13 @@ tools/livekit/LICENSE
 
 # Smoke-test artifacts
 chirp-out.wav
+
+# Screenshots captured by the screenshot skill (.claude/screenshots/<ts>-<route>.png)
+.claude/screenshots/
+
+# dev-stack runtime state (PIDs of detached processes, hook sentinels)
+.claude/.dev-stack.pids.json
+.claude/.last-typecheck-web
+
+# Per-user settings (settings.json is shared, settings.local.json is personal)
+.claude/settings.local.json

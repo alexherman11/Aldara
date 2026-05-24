@@ -15,7 +15,9 @@
     "dev": "concurrently -n livekit,server,agent,web -c yellow,blue,magenta,green \"npm:livekit\" \"npm:server\" \"npm:agent\" \"npm:web\"",
     "setup-db": "tsx scripts/setup-db.ts",
     "test": "tsx scripts/run-unit-tests.ts",
-    "test-compaction": "tsx scripts/test-compaction.ts"
+    "test-compaction": "tsx scripts/test-compaction.ts",
+    "screenshot": "node scripts/screenshot.mjs",
+    "dev-stack": "node scripts/dev-stack.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
@@ -41,6 +43,7 @@
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
     "concurrently": "^9.1.0",
+    "playwright": "^1.60.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }
