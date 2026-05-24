@@ -209,7 +209,18 @@ async function main() {
     console.log(`\n── Turn ${i+1}/${TURNS.length}: "${turn.text}"`);
     const pcm = await openaiSynth(turn.text);
     const samples = bufferToInt16(pcm);
-    console.log(`  synthesized ${samples.length} samples (~${(samples.length/SAMPLE_RATE).toFixed(2)}s)`);
+    // Dump WAV so we can listen / inspect amplitude
+    {
+      const fs = await import('node:fs');
+      const wavHdr = Buffer.alloc(44);
+      wavHdr.write('RIFF',0); wavHdr.writeUInt32LE(36 + samples.length*2, 4); wavHdr.write('WAVE',8);
+      wavHdr.write('fmt ',12); wavHdr.writeUInt32LE(16,16); wavHdr.writeUInt16LE(1,20); wavHdr.writeUInt16LE(1,22);
+      wavHdr.writeUInt32LE(SAMPLE_RATE,24); wavHdr.writeUInt32LE(SAMPLE_RATE*2,28); wavHdr.writeUInt16LE(2,32); wavHdr.writeUInt16LE(16,34);
+      wavHdr.write('data',36); wavHdr.writeUInt32LE(samples.length*2,40);
+      fs.writeFileSync(`.logs/pron-test/turn-${i+1}.wav`, Buffer.concat([wavHdr, Buffer.from(samples.buffer, samples.byteOffset, samples.byteLength)]));
+    }
+    let peak = 0; for (let k = 0; k < Math.min(samples.length, 20000); k++) { const a = Math.abs(samples[k]); if (a > peak) peak = a; }
+    console.log(`  synthesized ${samples.length} samples (~${(samples.length/SAMPLE_RATE).toFixed(2)}s) peak=${peak}`);
 
     await waitForListening();
     await safeRpc(room, agentIdentity, 'ptt_start');
