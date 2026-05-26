@@ -1,8 +1,9 @@
 import 'dotenv/config';
 import express, { type Request, type Response } from 'express';
 import { AccessToken, AgentDispatchClient } from 'livekit-server-sdk';
-import { dirname, join } from 'node:path';
-import { existsSync } from 'node:fs';
+import { Room, RoomEvent } from '@livekit/rtc-node';
+import { dirname, join, resolve as resolvePath, isAbsolute } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   createLearnerWithProfile,
@@ -251,6 +252,117 @@ app.get('/api/token', async (req: Request, res: Response) => {
 app.get('/api/livekit-url', (_req, res) => {
   res.json({ url: LIVEKIT_URL });
 });
+
+// Dev-only endpoint. Joins the named room as a service participant, performs
+// the dev_inject_turn RPC on the Sofía agent, and disconnects. Gated by
+// HABLA_DEV_INJECT=1 so prod servers refuse it. Used by the Playwright visual
+// harness — the browser is already in the room as the learner, this is the
+// "we typed for the learner" channel that skips the microphone entirely.
+if (process.env.HABLA_DEV_INJECT === '1') {
+  app.use(express.json({ limit: '8mb' })); // larger limit for inline WAV uploads
+  app.post('/api/dev/inject-turn', async (req: Request, res: Response) => {
+    const body = req.body as {
+      roomName?: string;
+      text?: string;
+      recordingPath?: string; // absolute or repo-relative .wav path
+      audioWavBase64?: string;
+    };
+    if (!body?.roomName || !body?.text) {
+      return res.status(400).json({ ok: false, error: 'roomName and text are required' });
+    }
+
+    let recordingPathAbs: string | undefined;
+    if (body.recordingPath) {
+      const repoRoot = resolvePath(__dirname, '..');
+      recordingPathAbs = isAbsolute(body.recordingPath)
+        ? body.recordingPath
+        : resolvePath(repoRoot, body.recordingPath);
+      if (!existsSync(recordingPathAbs)) {
+        return res
+          .status(404)
+          .json({ ok: false, error: `recording not found: ${recordingPathAbs}` });
+      }
+    }
+    // RPC payload limit is ~15 KB so we never inline more than a tiny clip.
+    const audioWavBase64 =
+      !recordingPathAbs && body.audioWavBase64 && body.audioWavBase64.length < 10_000
+        ? body.audioWavBase64
+        : undefined;
+
+    // Build a service-token with the right RPC grants and join the room as
+    // a non-publishing participant. We never publish a track — this is just
+    // a channel to invoke the agent's dev RPC.
+    const injectorId = `dev-injector-${Math.random().toString(36).slice(2, 8)}`;
+    const token = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, {
+      identity: injectorId,
+      name: 'dev-injector',
+      ttl: '5m',
+    });
+    token.addGrant({
+      roomJoin: true,
+      room: body.roomName,
+      canPublish: false,
+      canSubscribe: true,
+      canPublishData: true,
+    });
+    const jwt = await token.toJwt();
+
+    const room = new Room();
+    let agentIdentity: string | null = null;
+    room.on(RoomEvent.ParticipantConnected, (p) => {
+      if (p.attributes?.['lk.agent.state']) {
+        agentIdentity = p.identity;
+      }
+    });
+
+    try {
+      await room.connect(LIVEKIT_URL, jwt);
+      // Existing participants are already on the room; scan once after connect.
+      for (const [, p] of room.remoteParticipants) {
+        if (p.attributes?.['lk.agent.state']) {
+          agentIdentity = p.identity;
+          break;
+        }
+      }
+      // Wait briefly for the agent to surface if it hasn't yet.
+      const deadline = Date.now() + 8_000;
+      while (!agentIdentity && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      if (!agentIdentity) {
+        await room.disconnect();
+        return res
+          .status(503)
+          .json({ ok: false, error: 'agent not present in room within 8s' });
+      }
+
+      const rpcPayload = JSON.stringify({
+        text: body.text,
+        recordingPathAbs,
+        audioWavBase64,
+      });
+      const rpcResp = await room.localParticipant!.performRpc({
+        destinationIdentity: agentIdentity,
+        method: 'dev_inject_turn',
+        payload: rpcPayload,
+        responseTimeout: 20_000,
+      });
+      await room.disconnect();
+      const parsed = JSON.parse(rpcResp);
+      return res.json({ ok: parsed.ok !== false, agent: parsed, agentIdentity });
+    } catch (err) {
+      try {
+        await room.disconnect();
+      } catch {
+        /* swallow */
+      }
+      return res
+        .status(500)
+        .json({ ok: false, error: String(err).slice(0, 400) });
+    }
+  });
+  console.log('[token-server] /api/dev/inject-turn enabled (HABLA_DEV_INJECT=1)');
+}
 
 // Exposes the live-system pieces the agent has wired up. Read at the time of
 // the request; doesn't depend on a session being active.

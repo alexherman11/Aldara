@@ -79,3 +79,38 @@ export function chunkDurationSeconds(chunks: PcmChunk[]): number {
   const total = chunks.reduce((n, c) => n + c.samples.length, 0);
   return total / chunks[0].sampleRate / chunks[0].channels;
 }
+
+/**
+ * Parse a 16-bit PCM WAV file into a single PcmChunk. Used by the dev
+ * injection RPC to replay a captured recording through the same code paths
+ * the live PTT flow uses. Only supports the format `chunksToWav` emits
+ * (mono, 16-bit signed LE PCM, single data sub-chunk after a standard 44-byte
+ * RIFF header). Throws if the input doesn't match.
+ */
+export function wavToChunk(wav: Buffer): PcmChunk {
+  if (wav.length < 44) {
+    throw new Error(`wavToChunk: buffer too short (${wav.length} bytes)`);
+  }
+  if (wav.toString('ascii', 0, 4) !== 'RIFF' || wav.toString('ascii', 8, 12) !== 'WAVE') {
+    throw new Error('wavToChunk: missing RIFF/WAVE magic');
+  }
+  const format = wav.readUInt16LE(20);
+  const channels = wav.readUInt16LE(22);
+  const sampleRate = wav.readUInt32LE(24);
+  const bitsPerSample = wav.readUInt16LE(34);
+  if (format !== 1 || bitsPerSample !== 16) {
+    throw new Error(
+      `wavToChunk: unsupported format (format=${format}, bps=${bitsPerSample}); expected 16-bit PCM`,
+    );
+  }
+  if (wav.toString('ascii', 36, 40) !== 'data') {
+    throw new Error('wavToChunk: data sub-chunk not at offset 36 (unusual layout)');
+  }
+  const dataBytes = wav.readUInt32LE(40);
+  const sampleCount = dataBytes / 2;
+  const samples = new Int16Array(sampleCount);
+  for (let i = 0; i < sampleCount; i++) {
+    samples[i] = wav.readInt16LE(44 + i * 2);
+  }
+  return { samples, sampleRate, channels };
+}

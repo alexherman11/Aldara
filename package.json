@@ -17,7 +17,9 @@
     "test": "tsx scripts/run-unit-tests.ts",
     "test-compaction": "tsx scripts/test-compaction.ts",
     "screenshot": "node scripts/screenshot.mjs",
-    "dev-stack": "node scripts/dev-stack.mjs"
+    "dev-stack": "node scripts/dev-stack.mjs",
+    "test-bad-pron": "tsx scripts/test-bad-pronunciation.ts",
+    "test-visual-bad-pron": "node scripts/test-visual-bad-pronunciation.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",

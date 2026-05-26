@@ -63,7 +63,12 @@ import {
 // TTS catalog is consumed by the token-server (validation + /debug/config)
 // and by the React picker. agent.ts doesn't need to import it directly — it
 // just receives the already-validated provider/voice pair via dispatch metadata.
-import { chunksToWav, chunkDurationSeconds, type PcmChunk } from './pronunciation/wav.js';
+import {
+  chunksToWav,
+  chunkDurationSeconds,
+  wavToChunk,
+  type PcmChunk,
+} from './pronunciation/wav.js';
 import type { PronunciationAssessment } from './pronunciation/types.js';
 import { writeFileSync, mkdirSync, existsSync, appendFileSync } from 'node:fs';
 import { join as _pathJoin } from 'node:path';
@@ -494,6 +499,14 @@ class SofiaAgent extends voice.Agent {
    * construct the agent without a live room.
    */
   public publishToRoom?: (data: Uint8Array, topic: string) => Promise<void>;
+  /**
+   * Dev-only: publish a fake learner transcription segment so the web UI
+   * renders a learner bubble for an injected turn. Without this, the visual
+   * harness sees the tutor reply but no learner bubble (and therefore no
+   * pronunciation citation, which renders inline with the learner bubble).
+   * Wired up in entry() only when HABLA_DEV_INJECT=1.
+   */
+  public publishLearnerTranscription?: (text: string, turn: number) => Promise<void>;
   private evalInFlight = false;
 
   /** PCM chunks for the IN-PROGRESS turn. Reset on PTT_start. */
@@ -596,6 +609,44 @@ class SofiaAgent extends voice.Agent {
     const out = this.currentTurnFrames;
     this.currentTurnFrames = [];
     return out;
+  }
+
+  /**
+   * Dev/test entry point that drives the same flow as a real PTT turn but
+   * with caller-supplied text + audio, skipping LiveKit/Deepgram entirely.
+   * Used by the dev_inject_turn RPC so a headless harness can exercise the
+   * pronunciation feedback loop against pre-recorded "bad" WAVs without a
+   * microphone. Mirrors onUserTurnCompleted's body so transcript state,
+   * difficulty controller, pronunciation publish path, and LLM reply all
+   * happen exactly as they would on a real turn — the only difference is
+   * the text comes from the caller instead of from STT.
+   */
+  async injectTurnForTesting(text: string, wav: Buffer | null): Promise<void> {
+    this.ctx.fullTranscript.push({
+      role: 'learner',
+      text,
+      ts: new Date(),
+    });
+    this.ctx.turnCount++;
+    console.log(`[learner turn ${this.ctx.turnCount}] (injected) ${text}`);
+
+    // Publish a fake learner-bubble transcription so the UI shows the
+    // injected turn. Best-effort — pronunciation citation rendering depends
+    // on this bubble existing (see web/src/pages/Session.tsx).
+    try {
+      await this.publishLearnerTranscription?.(text, this.ctx.turnCount);
+    } catch (err) {
+      console.warn('[dev_inject] publishLearnerTranscription failed:', err);
+    }
+
+    this.kickOffDifficultyEval();
+    if (wav && wav.length > 44) {
+      this.kickOffPronunciationAssessment(text, [wavToChunk(wav)]);
+    }
+
+    // Drive Sofía's reply through the AgentSession exactly like the live
+    // STT path would — userInput becomes a ChatMessage on the LLM input.
+    this.session.generateReply({ userInput: text });
   }
 
   override async onEnter() {
@@ -917,6 +968,22 @@ export default defineAgent({
       await lp.publishData(data, { topic, reliable: true });
     };
 
+    if (process.env.HABLA_DEV_INJECT === '1') {
+      // We avoid lp.publishTranscription here — the rtc-node FFI panics on
+      // empty trackSid and we don't reliably have one for the learner. A
+      // custom data-channel topic is enough: the web client interprets it as
+      // an injected learner bubble and renders it the same way it would a
+      // real STT segment. See Session.tsx 'dev_inject_bubble' handler.
+      agent.publishLearnerTranscription = async (text, turn) => {
+        const lp = ctx.room.localParticipant;
+        if (!lp) return;
+        const payload = new TextEncoder().encode(
+          JSON.stringify({ type: 'learner_bubble', text, turn, ts: Date.now() }),
+        );
+        await lp.publishData(payload, { topic: 'dev_inject_bubble', reliable: true });
+      };
+    }
+
     const ttsChoice = resolveTtsChoice(ctx);
     if (ttsChoice.provider || ttsChoice.voice || ttsChoice.legacyChoice) {
       console.log(
@@ -967,6 +1034,52 @@ export default defineAgent({
       session.commitUserTurn();
       return JSON.stringify({ ok: true });
     });
+
+    // Dev-only: inject a learner turn from text (+ optional pre-recorded WAV).
+    // Gated by HABLA_DEV_INJECT=1 so prod agents don't expose it. Enables a
+    // headless Playwright harness to exercise the full pipeline (pronunciation
+    // assessment, data-channel publish, LLM reply, controller eval) on real
+    // recordings without needing a microphone. See scripts/test-visual-bad-pronunciation.mjs.
+    if (process.env.HABLA_DEV_INJECT === '1') {
+      ctx.room.localParticipant!.registerRpcMethod(
+        'dev_inject_turn',
+        async (data) => {
+          try {
+            const payload = JSON.parse(data.payload) as {
+              text: string;
+              // Absolute filesystem path to a .wav file. LiveKit RPC payloads
+              // top out around 15 KB so we can't ship audio bytes inline — the
+              // agent reads from disk. Safe because HABLA_DEV_INJECT is dev-only.
+              recordingPathAbs?: string;
+              // Optional inline fallback for very short recordings (< ~10 KB).
+              audioWavBase64?: string;
+            };
+            if (!payload.text || typeof payload.text !== 'string') {
+              return JSON.stringify({ ok: false, error: 'missing text' });
+            }
+            let wav: Buffer | null = null;
+            if (payload.recordingPathAbs) {
+              const { readFileSync, existsSync } = await import('node:fs');
+              if (!existsSync(payload.recordingPathAbs)) {
+                return JSON.stringify({
+                  ok: false,
+                  error: `recording not found: ${payload.recordingPathAbs}`,
+                });
+              }
+              wav = readFileSync(payload.recordingPathAbs);
+            } else if (payload.audioWavBase64) {
+              wav = Buffer.from(payload.audioWavBase64, 'base64');
+            }
+            await agent.injectTurnForTesting(payload.text, wav);
+            return JSON.stringify({ ok: true, turn: sessionContext.turnCount });
+          } catch (err) {
+            console.warn('[dev_inject_turn] failed:', err);
+            return JSON.stringify({ ok: false, error: String(err).slice(0, 300) });
+          }
+        },
+      );
+      console.log('[agent] dev_inject_turn RPC registered (HABLA_DEV_INJECT=1)');
+    }
 
     // Debug snapshot RPC — returns current session state for the web debug panel
     ctx.room.localParticipant!.registerRpcMethod(

@@ -496,6 +496,13 @@ export default function Session() {
           } else if (capturingRef.current) {
             admitted.add(seg.id);
             allowed.push(seg);
+          } else if (seg.id.startsWith('dev-inject-')) {
+            // Dev injection bypass: agent.injectTurnForTesting publishes a
+            // synthetic learner segment to render a bubble without going
+            // through the PTT pipeline. Marker id is dev-only — see agent.ts
+            // publishLearnerTranscription, gated by HABLA_DEV_INJECT=1.
+            admitted.add(seg.id);
+            allowed.push(seg);
           }
           // else: arrived between PTT presses → drop silently.
         }
@@ -537,6 +544,49 @@ export default function Session() {
           });
         } catch (err) {
           console.warn('pronunciation payload parse failed:', err);
+        }
+      },
+    );
+
+    // Dev-only: the agent (with HABLA_DEV_INJECT=1) publishes a synthetic
+    // learner bubble for every injected turn so the visual harness can see
+    // the rendered transcript + pronunciation citation. Real PTT sessions
+    // never emit on this topic.
+    room.on(
+      RoomEvent.DataReceived,
+      (payload: Uint8Array, _participant?, _kind?, topic?: string) => {
+        if (topic !== 'dev_inject_bubble') return;
+        try {
+          const data = JSON.parse(new TextDecoder().decode(payload)) as {
+            type: string;
+            text: string;
+            turn: number;
+            ts: number;
+          };
+          if (data.type !== 'learner_bubble' || !data.text) return;
+          const segId = `dev-inject-${data.turn}-${data.ts}`;
+          setMessages((prev) => {
+            const next = mergeSegments(
+              prev,
+              [
+                {
+                  id: segId,
+                  text: data.text,
+                  startTime: 0,
+                  endTime: 0,
+                  language: 'es',
+                  final: true,
+                  firstReceivedTime: data.ts,
+                  lastReceivedTime: data.ts,
+                },
+              ],
+              'learner',
+            );
+            publishLastTurn(next, 'learner');
+            return next;
+          });
+        } catch (err) {
+          console.warn('dev_inject_bubble payload parse failed:', err);
         }
       },
     );
