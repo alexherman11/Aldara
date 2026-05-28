@@ -26,6 +26,7 @@ const SUITES = [
   'scripts/test-calibration-math.ts',
   'scripts/test-annotation-render.ts',
   'scripts/test-wav-roundtrip.ts',
+  'scripts/test-learner-eou.ts',
 ];
 
 let failedSuite: string | null = null;

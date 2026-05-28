@@ -220,6 +220,48 @@ export function writeSttChoice(choice: SttChoice): void {
   }
 }
 
+// ── Turn-taking mode (next-session) ───────────────────────────────────
+
+// How the learner's turn is committed:
+//   ptt — push-to-talk (hold spacebar / button). Most robust; the default.
+//   vad — open-mic, commit on silence (Silero VAD).
+//   stt — open-mic, semantic end-of-speech (learner-aware detector reading
+//         Soniox's transcript). Won't cut off a learner who pauses to think.
+// Like STT/TTS, this applies on the NEXT session: the agent binds turn handling
+// when the AgentSession is constructed and there's no live-swap API. Open-mic
+// modes auto-select Soniox STT on the backend.
+export const TURN_MODE_OPTIONS = [
+  { value: 'ptt', label: 'Push-to-talk (hold Space)' },
+  { value: 'stt', label: 'Open-mic — semantic (recommended)' },
+  { value: 'vad', label: 'Open-mic — silence only' },
+] as const;
+
+export type TurnMode = (typeof TURN_MODE_OPTIONS)[number]['value'];
+
+export const DEFAULT_TURN_MODE: TurnMode = 'ptt';
+
+const TURN_MODE_STORAGE_KEY = 'habla_turn_mode';
+
+export function readTurnMode(): TurnMode {
+  try {
+    const raw = localStorage.getItem(TURN_MODE_STORAGE_KEY);
+    if (raw && TURN_MODE_OPTIONS.some((o) => o.value === raw)) {
+      return raw as TurnMode;
+    }
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_TURN_MODE;
+}
+
+export function writeTurnMode(choice: TurnMode): void {
+  try {
+    localStorage.setItem(TURN_MODE_STORAGE_KEY, choice);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function getToken(opts: {
   learnerId: string;
   room?: string;
@@ -229,8 +271,10 @@ export function getToken(opts: {
   /** New paired voice selection from the Settings drawer's picker. */
   ttsProvider?: string;
   ttsVoice?: string;
-  /** STT engine for this session (assemblyai | deepgram). */
+  /** STT engine for this session (assemblyai | deepgram | soniox). */
   stt?: string;
+  /** Turn-taking mode for this session (ptt | vad | stt). */
+  turnMode?: string;
   /** 'placement' opens the post-signup calibration conversation. */
   mode?: 'placement' | 'normal';
 }): Promise<TokenResponse> {
@@ -242,6 +286,7 @@ export function getToken(opts: {
   if (opts.ttsProvider) params.set('ttsProvider', opts.ttsProvider);
   if (opts.ttsVoice) params.set('ttsVoice', opts.ttsVoice);
   if (opts.stt) params.set('stt', opts.stt);
+  if (opts.turnMode) params.set('turnMode', opts.turnMode);
   if (opts.mode === 'placement') params.set('mode', 'placement');
   return request<TokenResponse>(`/api/token?${params.toString()}`);
 }

@@ -3,7 +3,7 @@ import { useLocation } from 'wouter';
 import { Orb } from '@/components/Orb';
 import { SettingsDrawer } from '@/components/SettingsDrawer';
 import { Waveform } from '@/components/Waveform';
-import { X, Mic, Sparkles, Save, LogOut } from 'lucide-react';
+import { X, Mic, MicOff, Sparkles, Save, LogOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Room,
@@ -19,6 +19,8 @@ import {
   readStoredLearner,
   readSttChoice,
   readTtsChoice,
+  readTurnMode,
+  type TurnMode,
 } from '@/lib/api';
 import { getTtsPreference } from '@/lib/tts-settings';
 import { devBus } from '@/lib/dev-bus';
@@ -121,6 +123,14 @@ export default function Session() {
   const [orbState, setOrbState] = useState<OrbState>('idle');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isPushing, setIsPushing] = useState(false);
+
+  // Turn-taking mode is fixed for the session (the agent binds turn handling at
+  // connect time). 'ptt' = hold-to-talk; 'vad'/'stt' = open-mic (hands-free).
+  const [turnMode] = useState<TurnMode>(() => readTurnMode());
+  const openMic = turnMode !== 'ptt';
+  // Open-mic mute toggle — lets the learner pause the mic (e.g. to talk to
+  // someone else) without ending the session. No effect in push-to-talk.
+  const [micMuted, setMicMuted] = useState(false);
   const [agentIdentity, setAgentIdentity] = useState<string | null>(null);
   // When true, the X button has been pressed once and we're waiting for the
   // user to choose between compaction and a no-save bail. Distinct from
@@ -213,6 +223,7 @@ export default function Session() {
           ttsProvider: ttsPref?.provider,
           ttsVoice: ttsPref?.voice,
           stt: readSttChoice(),
+          turnMode,
         });
         token = t.token;
         url = t.url;
@@ -292,6 +303,7 @@ export default function Session() {
   // ── Hold-to-talk (mouse / touch / space bar) ──────────────────────
 
   const startPtt = useCallback(async () => {
+    if (openMic) return; // open-mic: the turn detector owns capture/commit
     const room = roomRef.current;
     if (!room || phase !== 'live') return;
     const target = findAgentIdentity(room);
@@ -318,9 +330,10 @@ export default function Session() {
       setIsPushing(false);
       devBus.setPtt({ capturing: false });
     }
-  }, [phase]);
+  }, [phase, openMic]);
 
   const endPtt = useCallback(() => {
+    if (openMic) return; // open-mic: no PTT release to handle
     const room = roomRef.current;
     if (!room || phase !== 'live') return;
     setIsPushing(false);
@@ -344,9 +357,23 @@ export default function Session() {
         })
         .catch((err) => console.warn('ptt_end failed:', err));
     }, TRAILING_CAPTURE_MS);
-  }, [phase]);
+  }, [phase, openMic]);
+
+  // Open-mic pause: physically mute/unmute the published mic track so Sofía
+  // stops hearing the learner (and stops committing turns) until they resume.
+  const toggleMute = useCallback(() => {
+    const room = roomRef.current;
+    if (!room) return;
+    const next = !micMuted;
+    setMicMuted(next);
+    void room.localParticipant
+      .setMicrophoneEnabled(!next)
+      .catch((err) => console.warn('mic toggle failed:', err));
+  }, [micMuted]);
 
   useEffect(() => {
+    // Spacebar push-to-talk only exists in PTT mode. Open-mic is hands-free.
+    if (openMic) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat) return;
       const tag = (document.activeElement as HTMLElement | null)?.tagName;
@@ -365,7 +392,7 @@ export default function Session() {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
     };
-  }, [startPtt, endPtt]);
+  }, [startPtt, endPtt, openMic]);
 
   // ── End session + compaction ─────────────────────────────────────
 
@@ -587,6 +614,51 @@ export default function Session() {
           });
         } catch (err) {
           console.warn('dev_inject_bubble payload parse failed:', err);
+        }
+      },
+    );
+
+    // Open-mic: the agent publishes the committed learner turn on this topic
+    // from onUserTurnCompleted. Push-to-talk renders the learner bubble from the
+    // live TranscriptionReceived stream (gated by capturingRef), but open-mic has
+    // no PTT capture window — so this data message is the authoritative "what
+    // Sofía heard" signal and we render the bubble from it. Ignored in PTT mode
+    // to avoid a duplicate bubble.
+    room.on(
+      RoomEvent.DataReceived,
+      (payload: Uint8Array, _participant?, _kind?, topic?: string) => {
+        if (topic !== 'learner_turn' || !openMic) return;
+        try {
+          const data = JSON.parse(new TextDecoder().decode(payload)) as {
+            type: string;
+            text: string;
+            turn: number;
+            ts: number;
+          };
+          if (data.type !== 'learner_turn' || !data.text) return;
+          const segId = `committed-${data.turn}-${data.ts}`;
+          setMessages((prev) => {
+            const next = mergeSegments(
+              prev,
+              [
+                {
+                  id: segId,
+                  text: data.text,
+                  startTime: 0,
+                  endTime: 0,
+                  language: 'es',
+                  final: true,
+                  firstReceivedTime: data.ts,
+                  lastReceivedTime: data.ts,
+                },
+              ],
+              'learner',
+            );
+            publishLastTurn(next, 'learner');
+            return next;
+          });
+        } catch (err) {
+          console.warn('learner_turn payload parse failed:', err);
         }
       },
     );
@@ -857,43 +929,83 @@ export default function Session() {
             ? 'Connecting to Sofía…'
             : orbState === 'speaking'
               ? 'Sofía is speaking…'
-              : isPushing
-                ? 'Listening…'
-                : 'Sofía'}
+              : openMic
+                ? micMuted
+                  ? 'Mic paused'
+                  : 'Listening…'
+                : isPushing
+                  ? 'Listening…'
+                  : 'Sofía'}
         </p>
 
-        <button
-          onMouseDown={startPtt}
-          onMouseUp={endPtt}
-          onMouseLeave={isPushing ? endPtt : undefined}
-          onTouchStart={(e) => {
-            e.preventDefault();
-            void startPtt();
-          }}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            void endPtt();
-          }}
-          disabled={phase !== 'live' || !agentIdentity}
-          aria-label="Hold to speak. Or press and hold the Space bar."
-          className="px-7 h-14 rounded-full text-base font-semibold text-white transition-all disabled:opacity-40 select-none flex items-center gap-2"
-          style={{
-            background: isPushing
-              ? 'linear-gradient(135deg, hsl(0 80% 50%), hsl(15 90% 56%))'
-              : 'linear-gradient(135deg, hsl(15 85% 52%), hsl(28 85% 56%))',
-            boxShadow: isPushing
-              ? '0 6px 24px hsl(0 80% 50% / 0.45)'
-              : '0 4px 18px hsl(15 85% 52% / 0.25)',
-            transform: isPushing ? 'scale(0.97)' : 'scale(1)',
-          }}
-          data-testid="btn-ptt"
-        >
-          <Mic className="w-4 h-4" />
-          {isPushing ? 'Release to send' : 'Hold to speak'}
-        </button>
-        <p className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground opacity-60">
-          or press and hold <kbd>Space</kbd>
-        </p>
+        {openMic ? (
+          // ── Open-mic: hands-free. No hold button — Sofía decides when the
+          // learner has finished. The only control is a mic pause toggle. ──
+          <>
+            <button
+              onClick={toggleMute}
+              disabled={phase !== 'live' || !agentIdentity}
+              aria-label={micMuted ? 'Resume microphone' : 'Pause microphone'}
+              className="px-7 h-14 rounded-full text-base font-semibold transition-all disabled:opacity-40 select-none flex items-center gap-2 border"
+              style={{
+                background: micMuted
+                  ? 'hsl(0 0% 96%)'
+                  : 'linear-gradient(135deg, hsl(15 85% 52%), hsl(28 85% 56%))',
+                color: micMuted ? 'hsl(0 0% 30%)' : 'white',
+                borderColor: micMuted ? 'hsl(0 0% 85%)' : 'transparent',
+                boxShadow: micMuted
+                  ? 'none'
+                  : '0 4px 18px hsl(15 85% 52% / 0.25)',
+              }}
+              data-testid="btn-mic-toggle"
+            >
+              {micMuted ? (
+                <MicOff className="w-4 h-4" />
+              ) : (
+                <Mic className="w-4 h-4" />
+              )}
+              {micMuted ? 'Resume' : 'Just talk'}
+            </button>
+            <p className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground opacity-60">
+              hands-free · Sofía is listening
+            </p>
+          </>
+        ) : (
+          <>
+            <button
+              onMouseDown={startPtt}
+              onMouseUp={endPtt}
+              onMouseLeave={isPushing ? endPtt : undefined}
+              onTouchStart={(e) => {
+                e.preventDefault();
+                void startPtt();
+              }}
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                void endPtt();
+              }}
+              disabled={phase !== 'live' || !agentIdentity}
+              aria-label="Hold to speak. Or press and hold the Space bar."
+              className="px-7 h-14 rounded-full text-base font-semibold text-white transition-all disabled:opacity-40 select-none flex items-center gap-2"
+              style={{
+                background: isPushing
+                  ? 'linear-gradient(135deg, hsl(0 80% 50%), hsl(15 90% 56%))'
+                  : 'linear-gradient(135deg, hsl(15 85% 52%), hsl(28 85% 56%))',
+                boxShadow: isPushing
+                  ? '0 6px 24px hsl(0 80% 50% / 0.45)'
+                  : '0 4px 18px hsl(15 85% 52% / 0.25)',
+                transform: isPushing ? 'scale(0.97)' : 'scale(1)',
+              }}
+              data-testid="btn-ptt"
+            >
+              <Mic className="w-4 h-4" />
+              {isPushing ? 'Release to send' : 'Hold to speak'}
+            </button>
+            <p className="mt-2 text-[10px] uppercase tracking-widest text-muted-foreground opacity-60">
+              or press and hold <kbd>Space</kbd>
+            </p>
+          </>
+        )}
 
         {phase === 'ending' && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">

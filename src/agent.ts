@@ -38,6 +38,8 @@ import * as assemblyai from '@livekit/agents-plugin-assemblyai';
 import * as google from '@livekit/agents-plugin-google';
 import * as inworld from '@livekit/agents-plugin-inworld';
 import { ChirpTTS } from './chirp-tts.js';
+import { STT as SonioxSTT } from './stt/soniox-rt-stt.js';
+import { LearnerEouDetector } from './turn/learner-eou.js';
 
 import {
   loadSessionContext,
@@ -212,6 +214,13 @@ function createStt(override?: string) {
     console.log('[agent] STT: deepgram nova-3 (language=multi)');
     return new deepgram.STT({ model: 'nova-3', language: 'multi' });
   }
+  if (provider === 'soniox') {
+    // Custom streaming adapter (no official LiveKit plugin) — see
+    // src/stt/soniox-rt-stt.ts. languageHints steer the es/en code-switching,
+    // and Soniox emits a semantic <end> token used by open-mic turn detection.
+    console.log('[agent] STT: soniox real-time (es/en hints)');
+    return new SonioxSTT({ languageHints: ['es', 'en'] });
+  }
   console.log('[agent] STT: assemblyai u3-rt-pro (multilingual prompt)');
   return new assemblyai.STT({
     speechModel: 'u3-rt-pro',
@@ -243,6 +252,59 @@ function resolveSttChoice(ctx: JobContext): string | undefined {
     // Older dispatch metadata was a bare learner id (not JSON). Ignore.
   }
   return undefined;
+}
+
+// How the learner's turn is committed:
+//   'ptt' — push-to-talk; the browser drives turns via ptt_start/ptt_end RPCs.
+//   'vad' — open-mic; commit on silence (Silero VAD), fixed minDelay.
+//   'stt' — open-mic; commit when speech stops AND the transcript looks finished,
+//           via the LearnerEouDetector (VAD detects the silence, the detector
+//           extends the wait when the learner is mid-thought). Reads Soniox's
+//           transcript, so 'stt' auto-selects Soniox below.
+export type TurnMode = 'ptt' | 'vad' | 'stt';
+
+// Resolve the turn-taking mode. Precedence (highest first):
+//   1. dispatch metadata `turnMode` (per-session pick from the web app).
+//   2. TURN_MODE env var (server-side default).
+//   3. 'ptt' fallback (the most robust path — never cuts a learner off).
+function resolveTurnMode(ctx: JobContext): TurnMode {
+  let fromMeta: string | undefined;
+  const raw = ctx.job?.metadata;
+  if (raw) {
+    try {
+      const v = JSON.parse(raw)?.turnMode;
+      if (typeof v === 'string' && v.length > 0) fromMeta = v;
+    } catch {
+      // legacy non-JSON metadata — ignore.
+    }
+  }
+  const choice = (fromMeta || process.env.TURN_MODE || 'ptt').toLowerCase();
+  if (choice === 'vad' || choice === 'stt') return choice;
+  return 'ptt';
+}
+
+// Endpointing delays (ms) handed to the AgentSession for open-mic modes. Biased
+// generous because LEARNERS pause to recall vocabulary; we'd rather wait a beat
+// too long than cut someone off mid-sentence. Lower CEFR → more patience. A long
+// maxDelay is cheap: resuming speech cancels the pending commit, so it only adds
+// latency when the learner has genuinely stopped on an incomplete-looking phrase.
+function endpointingForLevel(
+  level?: string | null,
+): { minDelay: number; maxDelay: number } {
+  switch ((level ?? '').toUpperCase()) {
+    case 'A1':
+    case 'A2':
+      return { minDelay: 900, maxDelay: 5000 };
+    case 'B1':
+      return { minDelay: 700, maxDelay: 4000 };
+    case 'B2':
+    case 'C1':
+    case 'C2':
+      return { minDelay: 600, maxDelay: 3000 };
+    default:
+      // Unknown / placement (level not yet calibrated): be patient.
+      return { minDelay: 900, maxDelay: 5000 };
+  }
 }
 
 // Sofía's TTS persona — handed to providers that accept a style instruction
@@ -513,13 +575,18 @@ class SofiaAgent extends voice.Agent {
   private currentTurnFrames: PcmChunk[] = [];
 
   /**
-   * Whether the learner is currently holding PTT. Gates captureFrames so we
-   * only buffer audio between ptt_start and ptt_end — not the silence between
-   * turns or the agent's own speech reflecting back. The previous version
+   * Whether we're currently buffering audio for the in-progress turn. Gates
+   * captureFrames so we only collect the learner's speech — not the silence
+   * between turns or Sofía's own audio reflecting back. The previous version
    * accumulated frames for the entire session lifetime, producing 30+ minute
    * "turn" recordings.
+   *
+   * In push-to-talk this tracks the spacebar hold (begin/endPttCapture). In
+   * open-mic it tracks the AgentSession's UserState 'speaking' window
+   * (setCaptureActive, driven by UserStateChanged in entry()). Either way the
+   * buffer is flushed by onUserTurnCompleted when the turn commits.
    */
-  private pttActive = false;
+  private captureActive = false;
 
   constructor(sessionContext: SessionContext, assessor: PronunciationAssessor) {
     // Placement sessions drive the calibration controller — it opens the
@@ -567,11 +634,11 @@ class SofiaAgent extends voice.Agent {
         const { value, done } = await reader.read();
         if (done) return;
         if (!value) continue;
-        // Only buffer frames between ptt_start and ptt_end. Without this gate
-        // we accumulate audio for the entire agent lifetime — silence between
-        // turns, Sofía's own speech feeding back, everything. Resulted in
-        // 1913-second "turn" recordings on the first session.
-        if (!this.pttActive) continue;
+        // Only buffer frames while a turn is active (PTT hold, or the open-mic
+        // 'speaking' window). Without this gate we accumulate audio for the
+        // entire agent lifetime — silence between turns, Sofía's own speech
+        // feeding back, everything. Resulted in 1913-second "turn" recordings.
+        if (!this.captureActive) continue;
         this.currentTurnFrames.push({
           samples: value.data,
           sampleRate: value.sampleRate,
@@ -590,7 +657,7 @@ class SofiaAgent extends voice.Agent {
    */
   beginPttCapture(): void {
     this.currentTurnFrames = [];
-    this.pttActive = true;
+    this.captureActive = true;
   }
 
   /**
@@ -598,7 +665,18 @@ class SofiaAgent extends voice.Agent {
    * flushed by onUserTurnCompleted via flushTurnFrames().
    */
   endPttCapture(): void {
-    this.pttActive = false;
+    this.captureActive = false;
+  }
+
+  /**
+   * Open-mic capture gate, driven by the AgentSession's UserStateChanged event
+   * (see entry()). Unlike beginPttCapture we deliberately DON'T reset the buffer
+   * when speaking (re)starts: a learner who pauses mid-sentence and resumes is
+   * still the same turn, and we want their whole utterance for pronunciation.
+   * The buffer is cleared by flushTurnFrames() when the turn actually commits.
+   */
+  setCaptureActive(active: boolean): void {
+    this.captureActive = active;
   }
 
   /**
@@ -695,6 +773,24 @@ class SofiaAgent extends voice.Agent {
     this.ctx.turnCount++;
 
     console.log(`[learner turn ${this.ctx.turnCount}] ${text}`);
+
+    // Publish the committed turn so the web client can render the learner
+    // bubble. In push-to-talk the UI gates bubbles on the PTT window; open-mic
+    // has no such window, so this data message is the authoritative "this is
+    // what Sofía heard" signal. Best-effort — never block the reply on it.
+    if (text) {
+      const payload = new TextEncoder().encode(
+        JSON.stringify({
+          type: 'learner_turn',
+          text,
+          turn: this.ctx.turnCount,
+          ts: Date.now(),
+        }),
+      );
+      void this.publishToRoom?.(payload, 'learner_turn').catch((err) => {
+        console.warn('[agent] learner_turn publish failed:', err);
+      });
+    }
 
     // Fire-and-forget difficulty evaluation. Never blocks the LLM response.
     // Result lands in controllerState and is picked up on the NEXT prompt rebuild.
@@ -991,27 +1087,74 @@ export default defineAgent({
           `voice=${ttsChoice.voice ?? '∅'} legacy=${ttsChoice.legacyChoice ?? '∅'}`,
       );
     }
-    const sttChoice = resolveSttChoice(ctx);
+    const turnMode = resolveTurnMode(ctx);
+    let sttChoice = resolveSttChoice(ctx);
     if (sttChoice) {
       console.log(`[agent] STT override from dispatch metadata: ${sttChoice}`);
     }
+    // Open-mic modes need a streaming STT whose transcript the turn detector can
+    // read; Soniox is our best es/en engine and emits a semantic <end>. Force it
+    // unless the session/operator explicitly picked an STT (metadata or env).
+    if (turnMode !== 'ptt' && !sttChoice && !process.env.STT_PROVIDER) {
+      sttChoice = 'soniox';
+      console.log('[agent] open-mic turn mode → auto-selecting Soniox STT');
+    }
+
+    // Build the per-mode turn handling. PTT keeps the original manual contract.
+    // Open-mic modes enable barge-in (interruption) and pick a detector:
+    //   'stt' → the hesitation-aware LearnerEouDetector (VAD detects the silence,
+    //           the detector extends the endpoint when the transcript is mid-thought)
+    //   'vad' → plain silence-based detection (no semantic extension)
+    const endpointing = endpointingForLevel(sessionContext.markedCefrLevel);
+    const turnHandling =
+      turnMode === 'ptt'
+        ? { turnDetection: 'manual' as const, interruption: { enabled: false } }
+        : {
+            // LearnerEouDetector implements the internal `_TurnDetector` shape,
+            // which isn't exported from the public API in 1.2.6 — hence the cast.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            turnDetection:
+              turnMode === 'stt'
+                ? (new LearnerEouDetector() as any)
+                : ('vad' as const),
+            endpointing: { minDelay: endpointing.minDelay, maxDelay: endpointing.maxDelay },
+            // minWords > 0 so a lone filler ("um") doesn't interrupt Sofía.
+            interruption: { enabled: true, minWords: 2 },
+          };
+    console.log(
+      `[agent] Turn mode: ${turnMode}` +
+        (turnMode === 'ptt'
+          ? ''
+          : ` (endpointing ${endpointing.minDelay}-${endpointing.maxDelay}ms, level=${sessionContext.markedCefrLevel ?? '∅'})`),
+    );
+
     const session = new voice.AgentSession<SessionContext>({
       stt: createStt(sttChoice),
       llm: new openai.LLM({ model: 'gpt-4o' }),
       tts: createTts(ttsChoice),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
-      turnHandling: {
-        turnDetection: 'manual',
-        interruption: { enabled: false },
-      },
+      turnHandling,
     });
 
-    // Disable audio input initially (push-to-talk)
-    session.input.setAudioEnabled(false);
+    // PTT starts muted (the browser unmutes on spacebar). Open-mic keeps the mic
+    // open from the start so the learner can just begin talking.
+    if (turnMode === 'ptt') {
+      session.input.setAudioEnabled(false);
+    } else {
+      // Open-mic: drive the per-turn capture buffer off the UserState 'speaking'
+      // window so pronunciation assessment still gets exactly this turn's audio
+      // (PTT used begin/endPttCapture; there are no PTT events here).
+      session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+        agent.setCaptureActive(ev.newState === 'speaking');
+      });
+    }
 
-    // Register push-to-talk RPC methods
+    // Register push-to-talk RPC methods. Always registered so a stale browser
+    // tab on the wrong mode doesn't get an "unknown RPC" error — in open-mic
+    // modes they're harmless no-ops (the turn detector owns commit/capture).
     ctx.room.localParticipant!.registerRpcMethod('ptt_start', async () => {
+      if (turnMode !== 'ptt') return JSON.stringify({ ok: true, ignored: 'open-mic' });
       // interrupt() throws when interruption is disabled in turn handling
       // (which it is — see AgentSession config below). Swallow the throw so
       // the rest of the handler always runs; without this, setAudioEnabled
@@ -1029,9 +1172,24 @@ export default defineAgent({
     });
 
     ctx.room.localParticipant!.registerRpcMethod('ptt_end', async () => {
+      if (turnMode !== 'ptt') return JSON.stringify({ ok: true, ignored: 'open-mic' });
       session.input.setAudioEnabled(false);
       agent.endPttCapture();
       session.commitUserTurn();
+      return JSON.stringify({ ok: true });
+    });
+
+    // Open-mic "I'm done" nudge — lets the UI (e.g. an Enter key or a button)
+    // commit the current turn immediately instead of waiting for the endpointing
+    // timer. No-op in PTT mode, where the spacebar release already commits.
+    ctx.room.localParticipant!.registerRpcMethod('force_commit', async () => {
+      if (turnMode === 'ptt') return JSON.stringify({ ok: true, ignored: 'ptt' });
+      try {
+        session.commitUserTurn();
+      } catch (err) {
+        console.warn('[agent] force_commit failed:', err);
+        return JSON.stringify({ ok: false, error: String(err).slice(0, 200) });
+      }
       return JSON.stringify({ ok: true });
     });
 
@@ -1092,6 +1250,7 @@ export default defineAgent({
           tutorCore: sessionContext.tutorCore,
           fsrsDueItems: sessionContext.fsrsDueItems,
           turnCount: sessionContext.turnCount,
+          turnMode,
           sessionStartedAt: sessionContext.sessionStartedAt.toISOString(),
           systemPrompt: buildSystemPrompt(sessionContext, {
             controllerState: agent.controllerState,

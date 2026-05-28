@@ -20,15 +20,19 @@ import {
   readStoredLearner,
   readSttChoice,
   readTtsChoice,
+  readTurnMode,
   writeSttChoice,
   writeTtsChoice,
+  writeTurnMode,
   STT_OPTIONS,
   TTS_OPTIONS,
+  TURN_MODE_OPTIONS,
   type DebugConfig,
   type LearnerState,
   type StoredLearner,
   type SttChoice,
   type TtsChoice,
+  type TurnMode,
 } from '@/lib/api';
 import {
   devBus,
@@ -324,6 +328,7 @@ function DeveloperTab({
                 The new TtsSettings above takes precedence when both are set. */}
             <VoiceSelectorInline />
             <SttSelectorInline />
+            <TurnModeSelectorInline />
             <KvList
               rows={[
                 ['Server', config.livekit.url],
@@ -659,6 +664,40 @@ function SttSelectorInline() {
       </select>
       <p className="text-[11px] text-muted-foreground">
         Applies to your next session — STT is bound at session start.
+      </p>
+    </div>
+  );
+}
+
+// Per-session turn-taking mode picker. Like STT/TTS this binds at session start.
+// 'ptt' is push-to-talk; the open-mic modes are hands-free and auto-select
+// Soniox STT on the backend.
+function TurnModeSelectorInline() {
+  const [choice, setChoice] = useState<TurnMode>(() => readTurnMode());
+  return (
+    <div className="bg-card border border-border rounded-2xl p-3 flex flex-col gap-2">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Turn-taking
+      </span>
+      <select
+        value={choice}
+        onChange={(e) => {
+          const v = e.target.value as TurnMode;
+          setChoice(v);
+          writeTurnMode(v);
+        }}
+        className="w-full h-9 rounded-lg border border-border bg-background px-2 text-xs font-mono text-foreground"
+        data-testid="select-turn-mode"
+      >
+        {TURN_MODE_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <p className="text-[11px] text-muted-foreground">
+        Open-mic lets Sofía detect when you’ve finished — no spacebar. Applies to
+        your next session.
       </p>
     </div>
   );
