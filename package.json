@@ -7,9 +7,13 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && npm run build --prefix web",
     "agent": "tsx src/agent.ts dev",
     "server": "tsx src/token-server.ts",
+    "web": "npm run dev --prefix web",
+    "dev": "concurrently -n server,agent,web -c blue,magenta,green \"npm:server\" \"npm:agent\" \"npm:web\"",
+    "setup-db": "tsx scripts/setup-db.ts",
+    "test": "tsx scripts/run-unit-tests.ts",
     "test-compaction": "tsx scripts/test-compaction.ts"
   },
   "dependencies": {
@@ -30,6 +34,7 @@
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "concurrently": "^9.1.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

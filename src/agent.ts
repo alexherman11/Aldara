@@ -164,9 +164,63 @@ function buildPronunciationRenderData(
 const CARTESIA_VOICE_ID =
   process.env.CARTESIA_VOICE_ID || '5c5ad5e7-1020-476b-8b91-fdcbe9cc313c';
 
-// For the prototype, a single hardcoded learner. Phase 4+ handles real auth.
-const LEARNER_ID =
+// Pick a TTS at runtime so we can flip providers without code edits when one
+// goes down or runs out of credits. TTS_PROVIDER=openai uses gpt-4o-mini-tts
+// with a Spanish-warm female voice ("shimmer"). Default stays on Cartesia,
+// matching the original Habla voice.
+function createTts() {
+  const provider = (process.env.TTS_PROVIDER || 'cartesia').toLowerCase();
+  if (provider === 'openai') {
+    const voice = (process.env.OPENAI_TTS_VOICE || 'shimmer') as
+      | 'alloy'
+      | 'ash'
+      | 'ballad'
+      | 'coral'
+      | 'echo'
+      | 'fable'
+      | 'nova'
+      | 'onyx'
+      | 'sage'
+      | 'shimmer';
+    console.log(`[agent] TTS: openai gpt-4o-mini-tts (voice=${voice})`);
+    return new openai.TTS({ model: 'gpt-4o-mini-tts', voice });
+  }
+  console.log(`[agent] TTS: cartesia sonic-3 (voice=${CARTESIA_VOICE_ID})`);
+  return new cartesia.TTS({
+    model: 'sonic-3',
+    voice: CARTESIA_VOICE_ID,
+    language: 'es',
+  });
+}
+
+// Fallback learner used when the dispatch metadata doesn't carry one (older
+// scripts, the scenario harness, etc.). The web prototype passes the real
+// learnerId from the signed-up user via the dispatch metadata — see
+// resolveLearnerId() in entry().
+const FALLBACK_LEARNER_ID =
   process.env.LEARNER_ID || '00000000-0000-0000-0000-000000000aaa';
+
+/**
+ * Read the learner id from the JobContext's dispatch metadata if present,
+ * otherwise fall back to FALLBACK_LEARNER_ID. The token-server stamps the
+ * dispatch with `{"learnerId": "<uuid>"}` so each browser session lands on
+ * the right Postgres row.
+ */
+function resolveLearnerId(ctx: JobContext): string {
+  const raw = ctx.job?.metadata;
+  if (typeof raw === 'string' && raw.length > 0) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.learnerId === 'string' && parsed.learnerId.length > 0) {
+        return parsed.learnerId;
+      }
+    } catch {
+      // Metadata wasn't JSON. Treat it as a raw learner id if it looks like one.
+      if (/^[0-9a-fA-F-]{8,}$/.test(raw)) return raw;
+    }
+  }
+  return FALLBACK_LEARNER_ID;
+}
 
 class SofiaAgent extends voice.Agent {
   public ctx: SessionContext;
@@ -462,9 +516,11 @@ export default defineAgent({
   entry: async (ctx: JobContext) => {
     await ctx.connect();
 
-    // Load session context from Postgres (seeds a new learner if needed)
-    console.log(`[agent] Loading session context for learner ${LEARNER_ID}`);
-    const sessionContext = await loadSessionContext(LEARNER_ID);
+    // Load session context from Postgres (seeds a new learner if needed).
+    // learnerId comes from the dispatch metadata stamped by the token-server.
+    const learnerId = resolveLearnerId(ctx);
+    console.log(`[agent] Loading session context for learner ${learnerId}`);
+    const sessionContext = await loadSessionContext(learnerId);
     console.log(
       `[agent] Learner loaded: core_version=${sessionContext.learnerCore.version}, ` +
         `tutor_version=${sessionContext.tutorCore.version}, ` +
@@ -480,11 +536,7 @@ export default defineAgent({
     const session = new voice.AgentSession<SessionContext>({
       stt: new deepgram.STT({ model: 'nova-3', language: 'multi' }),
       llm: new openai.LLM({ model: 'gpt-4o' }),
-      tts: new cartesia.TTS({
-        model: 'sonic-3',
-        voice: CARTESIA_VOICE_ID,
-        language: 'es',
-      }),
+      tts: createTts(),
       vad: ctx.proc.userData.vad as silero.VAD,
       userData: sessionContext,
       turnHandling: {
@@ -498,7 +550,16 @@ export default defineAgent({
 
     // Register push-to-talk RPC methods
     ctx.room.localParticipant!.registerRpcMethod('ptt_start', async () => {
-      session.interrupt();
+      // interrupt() throws when interruption is disabled in turn handling
+      // (which it is — see AgentSession config below). Swallow the throw so
+      // the rest of the handler always runs; without this, setAudioEnabled
+      // never got called and every PTT turn produced silent STT input.
+      try {
+        session.interrupt();
+      } catch (err) {
+        // expected when agent isn't currently speaking, or when interruption
+        // is disabled — both are fine. Log at debug level only.
+      }
       session.clearUserTurn();
       agent.beginPttCapture();
       session.input.setAudioEnabled(true);
@@ -528,6 +589,14 @@ export default defineAgent({
             controllerState: agent.controllerState,
           }),
           transcriptLength: sessionContext.fullTranscript.length,
+          // Full transcript exposed for the scenario harness — the Node SDK
+          // doesn't surface TranscriptionReceived events the way the browser
+          // client does, so the harness polls this after each PTT turn.
+          transcript: sessionContext.fullTranscript.map((t) => ({
+            role: t.role,
+            text: t.text,
+            ts: t.ts instanceof Date ? t.ts.toISOString() : String(t.ts),
+          })),
           controllerState: agent.controllerState,
           pronunciation: {
             provider: agent.assessor.name,
@@ -615,4 +684,8 @@ export default defineAgent({
   },
 });
 
-cli.runApp(new ServerOptions({ agent: import.meta.filename }));
+// agentName="sofia" pins this worker behind a named dispatch — the scenario
+// harness creates explicit AgentDispatches per scenario room. The web app
+// uses an auto-dispatched anonymous worker when none is set, so we still
+// need a separate untagged worker (or explicit dispatch on connect) for that.
+cli.runApp(new ServerOptions({ agent: import.meta.filename, agentName: 'sofia' }));
