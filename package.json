@@ -19,7 +19,8 @@
     "screenshot": "node scripts/screenshot.mjs",
     "dev-stack": "node scripts/dev-stack.mjs",
     "test-bad-pron": "tsx scripts/test-bad-pronunciation.ts",
-    "test-visual-bad-pron": "node scripts/test-visual-bad-pronunciation.mjs"
+    "test-visual-bad-pron": "node scripts/test-visual-bad-pronunciation.mjs",
+    "test-visual-convo": "node scripts/test-visual-conversation.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.89.0",
@@ -38,12 +39,14 @@
     "microsoft-cognitiveservices-speech-sdk": "^1.49.0",
     "pg": "^8.13.0",
     "ts-fsrs": "^4.5.0",
+    "ws": "^8.18.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "@types/ws": "^8.18.1",
     "concurrently": "^9.1.0",
     "playwright": "^1.60.0",
     "tsx": "^4.19.0",

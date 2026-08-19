@@ -191,14 +191,16 @@ app.get('/api/token', async (req: Request, res: Response) => {
     ttsProvider = entry.provider;
     ttsVoice = entry.voice;
   }
-  // STT engine for this session — assemblyai (default) or deepgram. Picked
+  // STT engine for this session — assemblyai (default), deepgram, or soniox. Picked
   // in the Settings drawer's Developer tab; passed through dispatch metadata
   // and consumed in agent.ts createStt(). Validated against a fixed allowlist
   // so an unrecognized value just falls back silently to the env default
   // rather than crashing session boot.
   const sttRaw = (req.query.stt as string) || '';
   const stt =
-    sttRaw === 'assemblyai' || sttRaw === 'deepgram' ? sttRaw : '';
+    sttRaw === 'assemblyai' || sttRaw === 'deepgram' || sttRaw === 'soniox'
+      ? sttRaw
+      : '';
 
   // Session mode — 'placement' for the post-signup calibration conversation,
   // anything else (or absent) is a normal tutoring session. Rides in dispatch
@@ -251,6 +253,253 @@ app.get('/api/token', async (req: Request, res: Response) => {
 
 app.get('/api/livekit-url', (_req, res) => {
   res.json({ url: LIVEKIT_URL });
+});
+
+// ── Dictionary / translation proxy ───────────────────────────────────
+//
+// Powers the hover-to-translate feature on tutor bubbles. Server-side so:
+//   1. We can swap providers later without touching the client.
+//   2. Popular words can be cached in-memory across browsers.
+//   3. No third-party rate-limit headers leak to the browser.
+//
+// Defaults are zero-config (MyMemory + Wiktionary + Tatoeba — all keyless).
+// Adding DEEPL_API_KEY=… upgrades translation quality silently.
+
+type CacheEntry<T> = { value: T; expires: number };
+const dictCache = new Map<string, CacheEntry<unknown>>();
+const DICT_CACHE_TTL_MS = 1000 * 60 * 60 * 24; // 24h
+
+function cacheGet<T>(key: string): T | undefined {
+  const hit = dictCache.get(key);
+  if (!hit) return undefined;
+  if (hit.expires < Date.now()) {
+    dictCache.delete(key);
+    return undefined;
+  }
+  // Move to the back of the Map's insertion order so eviction (which walks
+  // keys oldest-first) drops cold entries before hot ones — real LRU, not FIFO.
+  dictCache.delete(key);
+  dictCache.set(key, hit);
+  return hit.value as T;
+}
+function cacheSet<T>(key: string, value: T): void {
+  if (dictCache.size > 5000) {
+    // LRU eviction — drop the least-recently-used half when we hit the cap.
+    // cacheGet re-inserts on hit, so the oldest keys here are the coldest.
+    const drop = Math.floor(dictCache.size / 2);
+    let i = 0;
+    for (const k of dictCache.keys()) {
+      dictCache.delete(k);
+      if (++i >= drop) break;
+    }
+  }
+  dictCache.set(key, { value, expires: Date.now() + DICT_CACHE_TTL_MS });
+}
+
+function normalizeWord(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .replace(/^[¿¡"'`(\[{.,!?;:]+|[.,!?;:"'`)\]}]+$/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+async function translateViaDeepL(
+  q: string,
+  context: string,
+): Promise<string | null> {
+  const key = process.env.DEEPL_API_KEY;
+  if (!key) return null;
+  // DeepL Free uses api-free.deepl.com; Pro uses api.deepl.com. Free keys
+  // end with `:fx` per their docs.
+  const host = key.endsWith(':fx') ? 'api-free.deepl.com' : 'api.deepl.com';
+  const params = new URLSearchParams({
+    text: q,
+    source_lang: 'ES',
+    target_lang: 'EN',
+    ...(context ? { context } : {}),
+  });
+  const resp = await fetch(`https://${host}/v2/translate`, {
+    method: 'POST',
+    headers: {
+      Authorization: `DeepL-Auth-Key ${key}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: params.toString(),
+    signal: AbortSignal.timeout(2500),
+  });
+  if (!resp.ok) return null;
+  const data = (await resp.json()) as { translations?: Array<{ text?: string }> };
+  return data.translations?.[0]?.text ?? null;
+}
+
+async function translateViaMyMemory(q: string): Promise<string | null> {
+  const url =
+    'https://api.mymemory.translated.net/get?' +
+    new URLSearchParams({ q, langpair: 'es|en' }).toString();
+  const resp = await fetch(url, { signal: AbortSignal.timeout(2500) });
+  if (!resp.ok) return null;
+  const data = (await resp.json()) as {
+    responseStatus?: number | string;
+    responseData?: { translatedText?: string };
+  };
+  // MyMemory surfaces quota/validation failures as HTTP 200 with an uppercase
+  // warning string in translatedText (e.g. "MYMEMORY WARNING: YOU USED ALL
+  // AVAILABLE FREE TRANSLATIONS FOR TODAY"). Reject anything that isn't a
+  // documented 200 so the caller falls back instead of caching the error.
+  if (Number(data.responseStatus) !== 200) return null;
+  return data.responseData?.translatedText ?? null;
+}
+
+app.get('/api/dict/translate', async (req: Request, res: Response) => {
+  const q = String(req.query.q ?? '').slice(0, 200);
+  const context = String(req.query.context ?? '').slice(0, 500);
+  if (!q.trim()) {
+    res.status(400).json({ error: 'q is required' });
+    return;
+  }
+  // Key off the full (already 500-capped) context — that's what DeepL sees for
+  // word-sense disambiguation, so truncating here would collide two requests
+  // that share a prefix but translate differently.
+  const cacheKey = `tr:${q.toLowerCase()}::${context.toLowerCase()}`;
+  const cached = cacheGet<{ translation: string; provider: string }>(cacheKey);
+  if (cached) {
+    res.json({ ...cached, cached: true });
+    return;
+  }
+  try {
+    let translation = await translateViaDeepL(q, context);
+    let provider = 'deepl';
+    if (!translation) {
+      translation = await translateViaMyMemory(q);
+      provider = 'mymemory';
+    }
+    if (!translation) {
+      res.status(502).json({ error: 'translation provider returned nothing' });
+      return;
+    }
+    const payload = { translation, provider };
+    cacheSet(cacheKey, payload);
+    res.json({ ...payload, cached: false });
+  } catch (err) {
+    console.warn('[token-server] /api/dict/translate failed:', err);
+    res
+      .status(502)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+// Pull Spanish-section definitions + examples from the English Wiktionary REST
+// `definition` endpoint. The response is keyed by ISO 639-1 language codes
+// ('es', 'en', …), not language names. Returns parsed HTML — we strip tags but
+// keep ordering so the UI can show "noun: …, verb: …". Definitions only; no
+// conjugation parsing.
+interface WiktionarySense {
+  partOfSpeech: string;
+  language: string;
+  definitions: Array<{ definition?: string; examples?: string[] }>;
+}
+
+function stripHtml(s: string): string {
+  return s
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    // &amp; must decode LAST so double-encoded entities (&amp;lt;) survive as
+    // their intended literal (&lt;) instead of collapsing an extra level.
+    .replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function fetchWiktionarySenses(
+  word: string,
+): Promise<Array<{ partOfSpeech: string; definitions: string[]; examples: string[] }>> {
+  const url = `https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`;
+  const resp = await fetch(url, {
+    headers: { Accept: 'application/json', 'User-Agent': 'AISpeaker-Habla/0.1' },
+    signal: AbortSignal.timeout(2500),
+  });
+  if (!resp.ok) return [];
+  const data = (await resp.json()) as Record<string, WiktionarySense[]>;
+  const es = data['es'] || [];
+  return es.map((s) => ({
+    partOfSpeech: s.partOfSpeech || 'other',
+    definitions: (s.definitions || [])
+      .map((d) => stripHtml(d.definition ?? ''))
+      .filter(Boolean)
+      .slice(0, 4),
+    examples: (s.definitions || [])
+      .flatMap((d) => (d.examples || []).map((e) => stripHtml(e)))
+      .filter(Boolean)
+      .slice(0, 3),
+  }));
+}
+
+async function fetchTatoebaExamples(
+  word: string,
+): Promise<Array<{ es: string; en: string }>> {
+  const url =
+    'https://tatoeba.org/eng/api_v0/search?' +
+    new URLSearchParams({
+      from: 'spa',
+      to: 'eng',
+      query: word,
+      orphans: 'no',
+      unapproved: 'no',
+      sort: 'relevance',
+    }).toString();
+  const resp = await fetch(url, {
+    headers: { 'User-Agent': 'AISpeaker-Habla/0.1' },
+    signal: AbortSignal.timeout(2500),
+  });
+  if (!resp.ok) return [];
+  const data = (await resp.json()) as {
+    results?: Array<{ text?: string; translations?: Array<Array<{ text?: string; lang?: string }>> }>;
+  };
+  const out: Array<{ es: string; en: string }> = [];
+  for (const r of (data.results || []).slice(0, 8)) {
+    const es = r.text;
+    const enTranslation = (r.translations || [])
+      .flat()
+      .find((t) => t.lang === 'eng' && t.text);
+    if (es && enTranslation?.text) {
+      out.push({ es, en: enTranslation.text });
+      if (out.length >= 3) break;
+    }
+  }
+  return out;
+}
+
+app.get('/api/dict/lookup', async (req: Request, res: Response) => {
+  const raw = String(req.query.word ?? '').slice(0, 80);
+  const word = normalizeWord(raw);
+  if (!word) {
+    res.status(400).json({ error: 'word is required' });
+    return;
+  }
+  const cacheKey = `look:${word}`;
+  const cached = cacheGet<unknown>(cacheKey);
+  if (cached) {
+    res.json({ ...(cached as object), cached: true });
+    return;
+  }
+  try {
+    const [senses, examples] = await Promise.all([
+      fetchWiktionarySenses(word).catch(() => []),
+      fetchTatoebaExamples(word).catch(() => []),
+    ]);
+    const payload = { word, senses, examples };
+    cacheSet(cacheKey, payload);
+    res.json({ ...payload, cached: false });
+  } catch (err) {
+    console.warn('[token-server] /api/dict/lookup failed:', err);
+    res
+      .status(502)
+      .json({ error: err instanceof Error ? err.message : String(err) });
+  }
 });
 
 // Dev-only endpoint. Joins the named room as a service participant, performs

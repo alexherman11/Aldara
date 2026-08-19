@@ -38,6 +38,7 @@ import * as assemblyai from '@livekit/agents-plugin-assemblyai';
 import * as google from '@livekit/agents-plugin-google';
 import * as inworld from '@livekit/agents-plugin-inworld';
 import { ChirpTTS } from './chirp-tts.js';
+import { STT as SonioxSTT } from './stt/soniox-rt-stt.js';
 
 import {
   loadSessionContext,
@@ -211,6 +212,11 @@ function createStt(override?: string) {
   if (provider === 'deepgram') {
     console.log('[agent] STT: deepgram nova-3 (language=multi)');
     return new deepgram.STT({ model: 'nova-3', language: 'multi' });
+  }
+  if (provider === 'soniox') {
+    // Custom streaming adapter (no official LiveKit plugin) — see
+    // src/stt/soniox-rt-stt.ts. language_hints steer the es/en code-switching.
+    return new SonioxSTT({ languageHints: ['es', 'en'] });
   }
   console.log('[agent] STT: assemblyai u3-rt-pro (multilingual prompt)');
   return new assemblyai.STT({

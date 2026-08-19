@@ -61,6 +61,7 @@ export function TtsSettings() {
 
   const providers = catalog ? Object.keys(catalog) : [];
   const voices = catalog && provider ? (catalog[provider] ?? []) : [];
+  const selectedVoice = voices.find((v) => v.id === voice);
 
   const handleProviderChange = (next: string) => {
     setProvider(next);
@@ -122,11 +123,20 @@ export function TtsSettings() {
         >
           {voices.map((v) => (
             <option key={v.id} value={v.id}>
-              {v.label}
+              {v.languages ? `${v.label} · ${v.languages}` : v.label}
             </option>
           ))}
         </select>
       </label>
+
+      {selectedVoice?.languages ? (
+        <p
+          className="text-[11px] text-foreground/80"
+          data-testid="tts-voice-languages"
+        >
+          Languages: {selectedVoice.languages}
+        </p>
+      ) : null}
 
       <p className="text-[11px] text-muted-foreground">
         {savedAt !== null

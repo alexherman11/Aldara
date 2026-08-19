@@ -67,6 +67,11 @@ const SEEDS = {
   'dev-mode': { habla_dev_mode: '1' },
   // Picks the OpenAI TTS option so the drawer voice row renders something.
   'tts-openai': { habla_tts: 'openai' },
+  // Seeds the new paired picker on Inworld/Ashley so the drawer renders the
+  // Inworld provider+voice row (handy for verifying the catalog entry shows up).
+  'tts-inworld': {
+    habla_tts_preference: JSON.stringify({ provider: 'inworld', voice: 'Ashley' }),
+  },
 };
 
 // ── arg parsing ─────────────────────────────────────────────────────────

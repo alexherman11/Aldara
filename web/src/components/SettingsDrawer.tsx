@@ -670,7 +670,14 @@ export function SettingsDrawer() {
   const [, setLocation] = useLocation();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [devMode, setDevMode] = useDevMode();
-  const stored = readStoredLearner();
+  // Read once per mount. readStoredLearner() parses localStorage into a fresh
+  // object every call, so calling it inline gave `stored` a new reference each
+  // render — which invalidated the `refresh` useCallback below, which re-ran
+  // its useEffect, which setState'd, which re-rendered… an infinite loop that
+  // hammered /api/learner/:id/state + /api/debug/config at ~300 req/s and
+  // exhausted the browser socket pool. Memoizing breaks the cycle; the drawer
+  // remounts on navigation, which is the natural point to re-read the learner.
+  const stored = React.useMemo(() => readStoredLearner(), []);
 
   const [state, setState] = useState<LearnerState | null>(null);
   const [config, setConfig] = useState<DebugConfig | null>(null);

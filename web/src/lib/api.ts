@@ -130,7 +130,10 @@ export interface DebugConfig {
    * consumers should treat it as optional.
    */
   tts?: {
-    catalog: Record<string, ReadonlyArray<{ id: string; label: string }>>;
+    catalog: Record<
+      string,
+      ReadonlyArray<{ id: string; label: string; languages?: string }>
+    >;
     server_default_provider: string;
   };
   db: { url_masked: string };
@@ -147,11 +150,11 @@ export function getDebugConfig(): Promise<DebugConfig> {
 // passed to /api/token, and stamped into LiveKit dispatch metadata so the
 // agent's createTts() picks it up. Takes effect on the next session started.
 export const TTS_OPTIONS = [
-  { value: 'cartesia', label: 'Cartesia — Sonic 3 (es)' },
-  { value: 'openai', label: 'OpenAI — gpt-4o-mini-tts' },
-  { value: 'google-flash', label: 'Google — Gemini 2.5 Flash TTS' },
-  { value: 'google-pro', label: 'Google — Gemini 2.5 Pro TTS' },
-  { value: 'inworld', label: 'Inworld — TTS-2' },
+  { value: 'cartesia', label: 'Cartesia — Sonic 3 · Spanish (ES-MX, native)' },
+  { value: 'openai', label: 'OpenAI — gpt-4o-mini-tts · English (native), Spanish (accented)' },
+  { value: 'google-flash', label: 'Google — Gemini 2.5 Flash TTS · Spanish + English' },
+  { value: 'google-pro', label: 'Google — Gemini 2.5 Pro TTS · Spanish + English' },
+  { value: 'inworld', label: 'Inworld — TTS-2 · Spanish + English (native both)' },
 ] as const;
 
 export type TtsChoice = (typeof TTS_OPTIONS)[number]['value'];
@@ -184,19 +187,29 @@ export function writeTtsChoice(choice: TtsChoice): void {
 
 // ── STT engine selection (next-session) ───────────────────────────────
 
-// AssemblyAI Universal-3 Pro Streaming is the default — empirically much
-// more accurate on noisy code-switched Spanish/English than Deepgram nova-3.
-// Deepgram stays selectable for cost or fallback reasons. Like the TTS
-// picker, the choice applies on the next session: LiveKit's AgentSession
-// binds STT at construction time and there is no live-swap API.
+// Soniox stt-rt-v4 is the default — strong real-time multilingual / code-switching
+// transcription for the Spanish+English mix learners produce. AssemblyAI
+// Universal-3 Pro and Deepgram nova-3 stay selectable for comparison/fallback.
+// Like the TTS picker, the choice applies on the next session: LiveKit's
+// AgentSession binds STT at construction time and there is no live-swap API.
 export const STT_OPTIONS = [
-  { value: 'assemblyai', label: 'AssemblyAI — Universal-3 Pro Streaming' },
-  { value: 'deepgram', label: 'Deepgram — Nova-3 (multilingual)' },
+  {
+    value: 'soniox',
+    label: 'Soniox — stt-rt-v4 · Spanish + English (code-switching)',
+  },
+  {
+    value: 'assemblyai',
+    label: 'AssemblyAI — Universal-3 Pro Streaming · Spanish + English (code-switching)',
+  },
+  {
+    value: 'deepgram',
+    label: 'Deepgram — Nova-3 · Spanish + English (multilingual)',
+  },
 ] as const;
 
 export type SttChoice = (typeof STT_OPTIONS)[number]['value'];
 
-export const DEFAULT_STT: SttChoice = 'assemblyai';
+export const DEFAULT_STT: SttChoice = 'soniox';
 
 const STT_STORAGE_KEY = 'habla_stt';
 
@@ -229,10 +242,16 @@ export function getToken(opts: {
   /** New paired voice selection from the Settings drawer's picker. */
   ttsProvider?: string;
   ttsVoice?: string;
-  /** STT engine for this session (assemblyai | deepgram). */
+  /** STT engine for this session (assemblyai | deepgram | soniox). */
   stt?: string;
   /** 'placement' opens the post-signup calibration conversation. */
   mode?: 'placement' | 'normal';
+  /**
+   * Override which named LiveKit agent worker this session dispatches to.
+   * Dev-only isolation lever — the token-server ignores it unless it has
+   * HABLA_DEV_INJECT=1. See readAgentNameOverride().
+   */
+  agentName?: string;
 }): Promise<TokenResponse> {
   const params = new URLSearchParams();
   params.set('learnerId', opts.learnerId);
@@ -243,7 +262,26 @@ export function getToken(opts: {
   if (opts.ttsVoice) params.set('ttsVoice', opts.ttsVoice);
   if (opts.stt) params.set('stt', opts.stt);
   if (opts.mode === 'placement') params.set('mode', 'placement');
+  if (opts.agentName) params.set('agentName', opts.agentName);
   return request<TokenResponse>(`/api/token?${params.toString()}`);
+}
+
+const AGENT_NAME_KEY = 'habla_agent_name';
+
+/**
+ * Optional dev-only override for which named LiveKit agent worker a session
+ * dispatches to. Lets an isolated stack — the verification harness, or a
+ * feature worktree — target its OWN worker (e.g. "sofia-verify") so it never
+ * competes for job dispatch with other agent workers registered against the
+ * same local LiveKit server. Seeded into localStorage by the harness; absent
+ * for normal users, in which case the server uses its default SOFIA_AGENT_NAME.
+ */
+export function readAgentNameOverride(): string | undefined {
+  try {
+    return localStorage.getItem(AGENT_NAME_KEY) || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ── Local user store ──────────────────────────────────────────────────

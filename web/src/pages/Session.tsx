@@ -19,9 +19,11 @@ import {
   readStoredLearner,
   readSttChoice,
   readTtsChoice,
+  readAgentNameOverride,
 } from '@/lib/api';
 import { getTtsPreference } from '@/lib/tts-settings';
 import { devBus } from '@/lib/dev-bus';
+import { TranslatableText } from '@/components/TranslatableText';
 
 const PARTICIPANT_IDENTITY = 'learner';
 
@@ -213,6 +215,7 @@ export default function Session() {
           ttsProvider: ttsPref?.provider,
           ttsVoice: ttsPref?.voice,
           stt: readSttChoice(),
+          agentName: readAgentNameOverride(),
         });
         token = t.token;
         url = t.url;
@@ -779,12 +782,21 @@ export default function Session() {
                 </span>
 
                 {msg.role === 'tutor' ? (
-                  <p
-                    className="font-serif text-lg leading-relaxed text-foreground text-center px-2"
-                    data-testid="bubble-tutor"
-                  >
-                    {text || <em className="opacity-50">…</em>}
-                  </p>
+                  text ? (
+                    <TranslatableText
+                      fragments={msg.fragments}
+                      final={msg.final}
+                      className="font-serif text-lg leading-relaxed text-foreground text-center px-2"
+                      testId="bubble-tutor"
+                    />
+                  ) : (
+                    <p
+                      className="font-serif text-lg leading-relaxed text-foreground text-center px-2"
+                      data-testid="bubble-tutor"
+                    >
+                      <em className="opacity-50">…</em>
+                    </p>
+                  )
                 ) : (
                   <div
                     className="rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed text-center border"

@@ -14,6 +14,12 @@ import { getDebugConfig } from './api';
 export interface TtsVoice {
   id: string;
   label: string;
+  /**
+   * Languages the voice handles well, surfaced next to the voice name in
+   * the picker so learners can spot Spanish-friendly options at a glance.
+   * Older servers won't send this field; treat it as optional in the UI.
+   */
+  languages?: string;
 }
 
 export type TtsCatalog = Record<string, ReadonlyArray<TtsVoice>>;
